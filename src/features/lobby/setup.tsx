@@ -2,8 +2,22 @@ import { useState } from 'react';
 import { useStream } from '@/logic/antigravity/stream';
 import { gameStore } from '@/logic/game-store';
 import { RoleType, ROLE_WEIGHTS } from '@/types';
-import { UserPlus, Shuffle, Trash2, RotateCcw, Play, AlertCircle, Info, Sparkles } from 'lucide-react';
+import { UserPlus, Shuffle, Trash2, RotateCcw, Play, AlertCircle, Info, Sparkles, Zap, Eye, Heart, Shield, Target, Crown, AlertTriangle, Flame, User as UserIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+
+function getRoleIcon(role: string) {
+  switch (role) {
+    case 'WEREWOLF': return <Zap className="w-3.5 h-3.5 text-red-500" />;
+    case 'SEER': return <Eye className="w-3.5 h-3.5 text-purple-400" />;
+    case 'WITCH': return <Heart className="w-3.5 h-3.5 text-green-400" />;
+    case 'BODYGUARD': return <Shield className="w-3.5 h-3.5 text-blue-400" />;
+    case 'HUNTER': return <Target className="w-3.5 h-3.5 text-orange-400" />;
+    case 'MAYOR': return <Crown className="w-3.5 h-3.5 text-yellow-400" />;
+    case 'IDIOT': return <AlertTriangle className="w-3.5 h-3.5 text-pink-400" />;
+    case 'ELDER': return <Flame className="w-3.5 h-3.5 text-amber-400" />;
+    default: return <UserIcon className="w-3.5 h-3.5 text-muted-foreground" />;
+  }
+}
 
 export function LobbySetup() {
   const players = useStream(gameStore.playerList);
@@ -25,11 +39,28 @@ export function LobbySetup() {
   ];
 
   const handleRandomize = () => {
-    const rolesToAssign = [...AVAILABLE_ROLES];
-    while (rolesToAssign.length < players.length) {
-      rolesToAssign.push('VILLAGER');
+    const playerCount = players.length;
+    if (playerCount === 0) return;
+
+    // Rule of thumb: ~1 wolf per 3-4 players
+    const wolfCount = Math.max(1, Math.floor(playerCount / 3.5));
+    
+    let roles: RoleType[] = [];
+    for (let i = 0; i < wolfCount; i++) roles.push('WEREWOLF');
+
+    // Add some power roles based on wolf count to balance
+    const powerRoles: RoleType[] = ['SEER', 'WITCH', 'BODYGUARD', 'HUNTER'];
+    const shuffledPower = [...powerRoles].sort(() => Math.random() - 0.5);
+    
+    // Add up to 2 power roles for flavor
+    roles.push(...shuffledPower.slice(0, Math.min(playerCount - wolfCount, 2)));
+
+    // Fill the rest with villagers
+    while (roles.length < playerCount) {
+      roles.push('VILLAGER');
     }
-    gameStore.randomizeRoles(rolesToAssign);
+
+    gameStore.randomizeRoles(roles);
   };
 
   const handleStartGame = () => {
@@ -66,15 +97,26 @@ export function LobbySetup() {
             </button>
           </form>
 
-          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
             {players.map((p, idx) => (
-              <div key={p.id} className="flex items-center justify-between p-2 rounded border border-border bg-background/50">
-                <span className="font-medium text-sm">{idx + 1}. {p.name}</span>
+              <div key={p.id} className="group flex items-center gap-4 p-4 rounded-xl border-2 border-border bg-card hover:border-primary/50 transition-all">
+                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center font-black text-xs text-muted-foreground shrink-0">
+                  {idx + 1}
+                </div>
+                
+                <div className="flex-1 min-w-0">
+                   <p className="font-black text-sm truncate uppercase tracking-tight">{p.name}</p>
+                   <div className="flex items-center gap-2 mt-1">
+                      {getRoleIcon(p.role)}
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{p.role === 'WEREWOLF' ? 'Werewolf' : p.role}</span>
+                   </div>
+                </div>
+
                 <div className="flex gap-2 items-center">
                   <select 
                     value={p.role} 
                     onChange={e => gameStore.assignRole(p.id, e.target.value as RoleType)}
-                    className="bg-muted text-xs p-1 rounded border-none appearance-none cursor-pointer"
+                    className="bg-muted text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border-none cursor-pointer hover:bg-muted/80 transition-colors"
                   >
                     <option value="VILLAGER">Villager</option>
                     <option value="WEREWOLF">Werewolf</option>
@@ -89,7 +131,7 @@ export function LobbySetup() {
                   <button 
                     type="button"
                     onClick={() => gameStore.removePlayer(p.id)}
-                    className="text-destructive opacity-50 hover:opacity-100 transition-opacity"
+                    className="p-2 text-destructive opacity-30 group-hover:opacity-100 hover:bg-destructive/10 rounded-lg transition-all"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
