@@ -25,7 +25,7 @@ import {
 
 import { NightEngineWizard } from '@/features/night-engine/wizard';
 import { VotingPanel } from '@/features/voting/VotingPanel';
-import { GameLogPanel } from '@/features/logs/GameLogPanel';
+import { GameLogPanel } from '../features/logs/GameLogPanel';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
