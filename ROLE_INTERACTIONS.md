@@ -78,3 +78,33 @@ During the `NIGHT` phase, roles MUST always awaken in this specific sequence to 
 The moderator can set a tie-break rule in the `VotingPanel`:
 * **No Execution** (default): In the event of a tie, no player is executed and the day ends normally.
 * **Double Execution**: Both tied players are executed simultaneously.
+
+## Role Balance (Lobby Setup)
+
+The Moderator App provides an **Auto-Balancing System** during the lobby phase to help create fair matches.
+
+### Balance Score Calculation
+Each role is assigned a specific `weight` that contributes to the `currentBalanceScore`:
+- **Village Lean (+)**: Roles that provide information or protection to the village.
+- **Wolf Lean (-)**: Roles that favor the werewolves or create chaos.
+
+| Role | Weight | Why? |
+|------|--------|------|
+| Villager | +1 | Basic village unit. |
+| Werewolf | -6 | Primary threat; high impact. |
+| Seer | +5 | Powerful information role. |
+| Witch | +4 | Potential for 2 kills/saves. |
+| Bodyguard | +3 | Consistent protection. |
+| Hunter | +3 | Defensive elimination. |
+| Idiot | +2 | Extra vote/survivability. |
+| Elder | +2 | High value target. |
+| Mayor | +2 | Double voting power. |
+| Cupid | -2 | Creates unpredictable third party. |
+
+### Balance Thresholds
+- **Balanced (-2 to +2)**: The game is statistically fair for both sides.
+- **Village Advantage (> +2)**: The village has too much power/information.
+- **Wolf Advantage (< -2)**: The werewolves have a significant edge.
+
+### Smart Suggestions
+The setup screen will suggest adding specific roles (e.g., adding a Seer if wolves have an advantage) to bring the score back toward the **Balanced Zone**.

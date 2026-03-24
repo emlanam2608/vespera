@@ -10,6 +10,19 @@ export type RoleType =
   | 'IDIOT'
   | 'ELDER';
 
+export const ROLE_WEIGHTS: Record<RoleType, number> = {
+  VILLAGER: 1,
+  WEREWOLF: -6,
+  SEER: 5,
+  WITCH: 4,
+  BODYGUARD: 3,
+  HUNTER: 3,
+  IDIOT: 2,
+  ELDER: 2,
+  MAYOR: 2,
+  CUPID: -2,
+};
+
 export type PlayerStatus = 'Alive' | 'Idioted' | 'Exposed';
 
 export interface Player {

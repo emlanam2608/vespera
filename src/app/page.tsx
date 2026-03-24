@@ -9,6 +9,7 @@ import {
   Shield,
   Eye,
   Zap,
+  Target,
   User,
   Moon,
   Sun,
@@ -165,8 +166,8 @@ export default function VesperaDashboard() {
       {status.phase === 'REVENGE' && status.pendingHunterId && (
         <div className="fixed inset-0 bg-background/95 backdrop-blur-sm z-50 flex items-center justify-center p-6 overflow-y-auto">
           <div className="bg-card w-full max-w-4xl border-2 border-orange-500/50 rounded-2xl p-8 shadow-2xl relative animate-in zoom-in-95 duration-300">
-            <h2 className="text-4xl font-black mb-2 flex justify-center items-center gap-4 text-orange-500 uppercase tracking-tighter">
-              <Shield className="w-10 h-10" /> Hunter's Last Stand
+            <h2 className="text-3xl font-black mb-4 flex items-center justify-center gap-3 text-orange-400 uppercase italic">
+              <Target className="w-10 h-10" /> Hunter's Last Stand
             </h2>
             <p className="text-muted-foreground text-center mb-10 font-bold uppercase tracking-widest text-sm">Target a player for revenge</p>
 
@@ -268,7 +269,7 @@ function PlayerCard({ player }: { player: Player }) {
       case 'SEER': return <Eye className="w-4 h-4 text-purple-400" />;
       case 'WITCH': return <Heart className="w-4 h-4 text-green-400" />;
       case 'BODYGUARD': return <Shield className="w-4 h-4 text-blue-400" />;
-      case 'HUNTER': return <Zap className="w-4 h-4 text-orange-400" />;
+      case 'HUNTER': return <Target className="w-4 h-4 text-orange-400" />;
       case 'MAYOR': return <Crown className="w-4 h-4 text-yellow-400" />;
       case 'IDIOT': return <AlertTriangle className="w-4 h-4 text-pink-400" />;
       case 'ELDER': return <Flame className="w-4 h-4 text-amber-400" />;

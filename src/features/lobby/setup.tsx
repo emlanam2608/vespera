@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useStream } from '@/logic/antigravity/stream';
 import { gameStore } from '@/logic/game-store';
-import { RoleType } from '@/types';
-import { UserPlus, Shuffle, Trash2, RotateCcw, Play } from 'lucide-react';
+import { RoleType, ROLE_WEIGHTS } from '@/types';
+import { UserPlus, Shuffle, Trash2, RotateCcw, Play, AlertCircle, Info, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export function LobbySetup() {
@@ -39,9 +39,12 @@ export function LobbySetup() {
 
   return (
     <div className="bg-card border-2 border-border rounded-xl p-6 shadow-sm max-w-5xl mx-auto mt-12">
-      <h2 className="text-2xl font-black mb-6 flex items-center gap-2 uppercase tracking-tighter">
-        Game Setup
-      </h2>
+      <div className="flex items-center justify-between mb-8 pb-4 border-b border-border">
+        <h2 className="text-3xl font-black flex items-center gap-2 uppercase tracking-tighter">
+          Match Setup
+        </h2>
+        {players.length > 0 && <BalanceIndicator players={players} />}
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div>
@@ -137,6 +140,63 @@ export function LobbySetup() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function BalanceIndicator({ players }: { players: any[] }) {
+  const score = players.reduce((sum, p) => sum + (ROLE_WEIGHTS[p.role as RoleType] || 0), 0);
+  
+  let status: 'balanced' | 'village' | 'wolf' = 'balanced';
+  if (score > 2) status = 'village';
+  if (score < -2) status = 'wolf';
+
+  const suggestions: RoleType[] = [];
+  if (score < -2) {
+    if (Math.abs(score) >= 5) suggestions.push('SEER', 'WITCH');
+    else suggestions.push('VILLAGER', 'BODYGUARD');
+  } else if (score > 2) {
+    if (score >= 6) suggestions.push('WEREWOLF');
+    else suggestions.push('WEREWOLF'); // Keep it simple
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-2 animate-in fade-in slide-in-from-right-4 duration-500">
+      <div className="flex items-center gap-3">
+        <div className="text-right">
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-50 mb-0.5">Game Balance</p>
+          <p className={`text-xl font-black ${
+            status === 'balanced' ? 'text-green-500' : 
+            status === 'village' ? 'text-blue-400' : 'text-red-500'
+          }`}>
+            {score > 0 ? `+${score}` : score} 
+            <span className="text-[10px] ml-1.5 opacity-70">
+              {status === 'balanced' ? 'BALANCED' : status === 'village' ? 'VILLAGE ADV.' : 'WOLF ADV.'}
+            </span>
+          </p>
+        </div>
+        <div className="h-10 w-1 rounded-full bg-border overflow-hidden flex flex-col-reverse">
+           <div 
+             className={`w-full transition-all duration-700 ${
+               status === 'balanced' ? 'bg-green-500' : 
+               status === 'village' ? 'bg-blue-400' : 'bg-red-500'
+             }`} 
+             style={{ height: `${Math.min(Math.abs(score) * 10, 100)}%` }}
+           />
+        </div>
+      </div>
+      
+      {suggestions.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-lg border border-border mt-1">
+          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Try adding:</span>
+          <div className="flex gap-1.5">
+            {suggestions.map(s => (
+              <span key={s} className="text-[10px] font-bold bg-background px-1.5 py-0.5 rounded border border-border">{s}</span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
