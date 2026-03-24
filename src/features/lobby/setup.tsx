@@ -39,28 +39,39 @@ export function LobbySetup() {
   ];
 
   const handleRandomize = () => {
-    const playerCount = players.length;
-    if (playerCount === 0) return;
+    const total = players.length;
+    if (total === 0) return;
 
-    // Rule of thumb: ~1 wolf per 3-4 players
-    const wolfCount = Math.max(1, Math.floor(playerCount / 3.5));
-    
-    let roles: RoleType[] = [];
-    for (let i = 0; i < wolfCount; i++) roles.push('WEREWOLF');
+    // 1. Base Wolf Count (~1 per 3.5 players)
+    const wolfCount = Math.max(1, Math.floor(total / 3.5));
+    let currentRoles: RoleType[] = Array(wolfCount).fill('WEREWOLF');
 
-    // Add some power roles based on wolf count to balance
-    const powerRoles: RoleType[] = ['SEER', 'WITCH', 'BODYGUARD', 'HUNTER'];
-    const shuffledPower = [...powerRoles].sort(() => Math.random() - 0.5);
-    
-    // Add up to 2 power roles for flavor
-    roles.push(...shuffledPower.slice(0, Math.min(playerCount - wolfCount, 2)));
-
-    // Fill the rest with villagers
-    while (roles.length < playerCount) {
-      roles.push('VILLAGER');
+    // 2. Mandatory Roles (Large games need a Seer)
+    if (total >= 5 && currentRoles.length < total) {
+      currentRoles.push('SEER');
     }
 
-    gameStore.randomizeRoles(roles);
+    // 3. Fill the rest with Villagers
+    while (currentRoles.length < total) {
+      currentRoles.push('VILLAGER');
+    }
+
+    // 4. Greedy Balancing Logic: Upgrade Villagers to Power Roles to reach the "Green Zone" (-2 to +2)
+    const calculateScore = (rs: RoleType[]) => rs.reduce((s, r) => s + (ROLE_WEIGHTS[r] || 0), 0);
+    const powerPool: RoleType[] = ['WITCH', 'BODYGUARD', 'HUNTER', 'ELDER', 'IDIOT'];
+    const shuffledPower = [...powerPool].sort(() => Math.random() - 0.5);
+    
+    let attempts = 0;
+    // Aim for score >= -2 (Village doesn't get steamrolled)
+    while (calculateScore(currentRoles) < -2 && attempts < shuffledPower.length) {
+      const vIndex = currentRoles.indexOf('VILLAGER');
+      if (vIndex !== -1 && attempts < shuffledPower.length) {
+        currentRoles[vIndex] = shuffledPower[attempts];
+      }
+      attempts++;
+    }
+
+    gameStore.randomizeRoles(currentRoles);
   };
 
   const handleStartGame = () => {
