@@ -15,6 +15,7 @@ function getRoleIcon(role: string) {
     case 'MAYOR': return <Crown className="w-3.5 h-3.5 text-yellow-400" />;
     case 'IDIOT': return <AlertTriangle className="w-3.5 h-3.5 text-pink-400" />;
     case 'ELDER': return <Flame className="w-3.5 h-3.5 text-amber-400" />;
+    case 'CUPID': return <Heart className="w-3.5 h-3.5 text-pink-400" />;
     default: return <UserIcon className="w-3.5 h-3.5 text-muted-foreground" />;
   }
 }
@@ -58,7 +59,7 @@ export function LobbySetup() {
 
     // 4. Greedy Balancing Logic: Upgrade Villagers to Power Roles to reach the "Green Zone" (-2 to +2)
     const calculateScore = (rs: RoleType[]) => rs.reduce((s, r) => s + (ROLE_WEIGHTS[r] || 0), 0);
-    const powerPool: RoleType[] = ['WITCH', 'BODYGUARD', 'HUNTER', 'ELDER', 'IDIOT'];
+    const powerPool: RoleType[] = ['WITCH', 'BODYGUARD', 'HUNTER', 'ELDER', 'IDIOT', 'CUPID'];
     const shuffledPower = [...powerPool].sort(() => Math.random() - 0.5);
     
     let attempts = 0;
@@ -138,6 +139,7 @@ export function LobbySetup() {
                     <option value="MAYOR">Mayor</option>
                     <option value="IDIOT">Idiot</option>
                     <option value="ELDER">Elder</option>
+                    <option value="CUPID">Cupid</option>
                   </select>
                   <button 
                     type="button"

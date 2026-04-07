@@ -131,6 +131,12 @@ export class GameStore {
     const wolfPower = wolves.reduce((sum, p) => sum + getPower(p), 0);
     const humanPower = humans.reduce((sum, p) => sum + getPower(p), 0);
 
+    if (alivePlayers.length > 0 && alivePlayers.length <= 3 && alivePlayers.every(p => p.faction === 'LOVERS')) {
+      this.gameStatus.update(status => ({ ...status, winner: 'LOVERS', phase: 'GAMEOVER' }));
+      this.addLog('INFO', '💘 VICTORY! True love conquers all. The Lovers Faction has survived!', []);
+      return;
+    }
+
     if (wolfPower === 0 && wolves.length === 0 && players.some(p => p.role === 'WEREWOLF')) {
       // Villagers win if all wolves are gone
       this.gameStatus.update(status => ({ ...status, winner: 'VILLAGERS', phase: 'GAMEOVER' }));
@@ -168,21 +174,27 @@ export class GameStore {
     if (player.loverPartnerId) toKill.push(player.loverPartnerId);
 
     const revealN = this.gameStatus.value.revealPolicy?.revealOnNightDeath;
+    const isChainDeath = toKill.length > 1;
+
     this.playerList.update(players =>
       players.map(p => toKill.includes(p.id) ? { 
         ...p, 
         isAlive: false, 
         status: 'Alive',
-        revealedRole: revealN ? p.role : p.revealedRole
+        revealedRole: (isChainDeath || revealN) ? p.role : p.revealedRole
       } : p)
     );
 
     toKill.forEach(id => {
       const p = this.playerList.value.find(x => x.id === id);
       if (p) {
-        let msg = `${p.name} was eliminated.`;
-        if (revealN) msg = `${p.name} (${p.role}) was eliminated.`;
-        this.addLog('NIGHT_DEATH', msg, [id]);
+        if (id !== playerId && isChainDeath) {
+           this.addLog('NIGHT_DEATH', `${p.name} (${p.role}) has died of a broken heart following the death of their lover!`, [id]);
+        } else {
+           let msg = `${p.name} was eliminated.`;
+           if (isChainDeath || revealN) msg = `${p.name} (${p.role}) was eliminated.`;
+           this.addLog('NIGHT_DEATH', msg, [id]);
+        }
       }
     });
 
@@ -247,12 +259,13 @@ export class GameStore {
     if (player.loverPartnerId) toKill.push(player.loverPartnerId);
 
     const revealPolicy = this.gameStatus.value.revealPolicy;
+    const isChainDeath = toKill.length > 1;
     
     this.playerList.update(players =>
       players.map(p => toKill.includes(p.id) ? { 
         ...p, 
         isAlive: false,
-        revealedRole: revealPolicy?.revealOnExecution ? p.role : p.revealedRole
+        revealedRole: (isChainDeath || revealPolicy?.revealOnExecution) ? p.role : p.revealedRole
       } : p)
     );
 
@@ -262,8 +275,12 @@ export class GameStore {
     toKill.forEach(id => {
       const p = this.playerList.value.find(x => x.id === id);
       if (p) {
-         const roleStr = revealPolicy?.revealOnExecution ? ` (${p.role})` : '';
-         this.addLog('EXECUTION', `${p.name}${roleStr} was executed by the village.`, [id]);
+         if (id !== playerId && isChainDeath) {
+             this.addLog('EXECUTION', `${p.name} (${p.role}) has died of a broken heart following the death of their lover!`, [id]);
+         } else {
+             const roleStr = (isChainDeath || revealPolicy?.revealOnExecution) ? ` (${p.role})` : '';
+             this.addLog('EXECUTION', `${p.name}${roleStr} was executed by the village.`, [id]);
+         }
       }
     });
 
@@ -303,12 +320,39 @@ export class GameStore {
     const players = this.playerList.value;
     let playersToKill: string[] = [];
 
+    // ── Apply Cupid Links First ─────────────────────────────────────────────
+    const cupidLinks = actions.filter(a => a.type === 'CUPID_LINK').map(a => a.targetId);
+    let cupidModifications = new Map<string, Partial<Player>>();
+
+    if (cupidLinks.length === 2) {
+      const idA = cupidLinks[0];
+      const idB = cupidLinks[1];
+      const pA = players.find(p => p.id === idA);
+      const pB = players.find(p => p.id === idB);
+      if (pA && pB) {
+         cupidModifications.set(idA, { loverPartnerId: idB });
+         cupidModifications.set(idB, { loverPartnerId: idA });
+         const mixed = (pA.role === 'WEREWOLF' && pB.role !== 'WEREWOLF') || (pB.role === 'WEREWOLF' && pA.role !== 'WEREWOLF');
+         if (mixed) {
+            cupidModifications.get(idA)!.faction = 'LOVERS';
+            cupidModifications.get(idB)!.faction = 'LOVERS';
+            const cupidId = players.find(p => p.role === 'CUPID')?.id;
+            if (cupidId) cupidModifications.set(cupidId, { faction: 'LOVERS' });
+         }
+      }
+    }
+
+    const workingPlayers = players.map(p => {
+       if (cupidModifications.has(p.id)) return { ...p, ...cupidModifications.get(p.id) };
+       return p;
+    });
+
     const bodyguardProtect = actions.find(a => a.type === 'BODYGUARD_PROTECT')?.targetId;
     const werewolfKills   = actions.filter(a => a.type === 'WEREWOLF_KILL').map(a => a.targetId);
     const witchSave        = actions.find(a => a.type === 'WITCH_SAVE')?.targetId;
     const witchKills       = actions.filter(a => a.type === 'WITCH_KILL').map(a => a.targetId);
 
-    const elder   = players.find(p => p.role === 'ELDER' && p.isAlive);
+    const elder   = workingPlayers.find(p => p.role === 'ELDER' && p.isAlive);
     const elderId = elder?.id;
 
     // ── Elder shield vs Werewolf attacks ────────────────────────────────────
@@ -357,35 +401,51 @@ export class GameStore {
 
     // ── Lover Chain Death ──────────────────────────────────────────────────
     let expandedKills = new Set(playersToKill);
+    let draggedByLover = new Map<string, string>(); // Target -> Dragged By
+    
     playersToKill.forEach(id => {
-      const p = players.find(x => x.id === id);
+      const p = workingPlayers.find(x => x.id === id);
       if (p?.loverPartnerId && !expandedKills.has(p.loverPartnerId)) {
         expandedKills.add(p.loverPartnerId);
-        this.addLog('NIGHT_DEATH', `${p.name}'s lover also died of a broken heart!`, [p.loverPartnerId]);
+        draggedByLover.set(p.loverPartnerId, id);
       }
     });
-    playersToKill = Array.from(expandedKills);
+    const finalKills = Array.from(expandedKills);
 
-    // ── Apply deaths ──────────────────────────────────────────────────────
+    // ── Apply deaths & modifications ──────────────────────────────────────
     const revealPolicy = this.gameStatus.value.revealPolicy;
     this.playerList.update(ps =>
-      ps.map(p => playersToKill.includes(p.id) ? { 
-        ...p, 
-        isAlive: false,
-        revealedRole: revealPolicy?.revealOnNightDeath ? p.role : p.revealedRole
-      } : p)
+      ps.map(p => {
+        let updated = { ...p };
+        if (cupidModifications.has(p.id)) {
+           updated = { ...updated, ...cupidModifications.get(p.id) };
+        }
+        if (finalKills.includes(p.id)) {
+          const isChainDeath = updated.loverPartnerId && finalKills.includes(updated.loverPartnerId);
+          updated.isAlive = false;
+          updated.revealedRole = (isChainDeath || revealPolicy?.revealOnNightDeath) ? updated.role : updated.revealedRole;
+        }
+        return updated;
+      })
     );
 
     // ── Log deaths ────────────────────────────────────────────────────────
     const allPlayers = this.playerList.value;
-    playersToKill.forEach(id => {
+    finalKills.forEach(id => {
       const p = allPlayers.find(pl => pl.id === id);
       if (p) {
-         let msg = `${p.name} was killed during the night.`;
-         if (revealPolicy?.revealOnNightDeath) {
-           msg = `${p.name} (${p.role}) was killed during the night.`;
+         const isChainDeath = p.loverPartnerId && finalKills.includes(p.loverPartnerId);
+         if (draggedByLover.has(id)) {
+            const dragSourceId = draggedByLover.get(id);
+            const dragSource = allPlayers.find(x => x.id === dragSourceId);
+            this.addLog('NIGHT_DEATH', `${p.name} (${p.role}) has died of a broken heart following the death of their lover ${dragSource?.name}!`, [id]);
+         } else {
+            let msg = `${p.name} was killed during the night.`;
+            if (isChainDeath || revealPolicy?.revealOnNightDeath) {
+              msg = `${p.name} (${p.role}) was killed during the night.`;
+            }
+            this.addLog('NIGHT_DEATH', msg, [id]);
          }
-         this.addLog('NIGHT_DEATH', msg, [id]);
       }
     });
 
@@ -404,7 +464,7 @@ export class GameStore {
 
     // Read updated curse state — witch poison may have just set it
     const cursed = this.gameStatus.value.villageCursed;
-    const hunterKilled = playersToKill.find(id => allPlayers.find(p => p.id === id)?.role === 'HUNTER');
+    const hunterKilled = finalKills.find(id => allPlayers.find(p => p.id === id)?.role === 'HUNTER');
 
     this.gameStatus.update(status => ({
       ...status,
@@ -502,7 +562,7 @@ export class GameStore {
       elderShieldCracked: false,
       revealPolicy: { revealOnExecution: true, revealOnNightDeath: true },
     });
-    this.playerList.update(players => players.map(p => ({ ...p, isAlive: true, status: 'Alive' as const, isMayor: false, revealedRole: undefined })));
+    this.playerList.update(players => players.map(p => ({ ...p, isAlive: true, status: 'Alive' as const, isMayor: false, revealedRole: undefined, loverPartnerId: undefined, faction: undefined })));
     this.nightActions.set([]);
     this.gameLogs.set([]);
   }

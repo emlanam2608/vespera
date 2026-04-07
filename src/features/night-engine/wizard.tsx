@@ -6,14 +6,14 @@ import { gameStore } from '@/logic/game-store';
 import { Player, NightAction } from '@/types';
 import { Check, ArrowRight, Zap, Eye, Shield, ShieldOff, Heart, Skull, Flame, Play, BarChart2, ChevronLeft, CheckCircle, UserPlus, XCircle } from 'lucide-react';
 
-type Step = 'BODYGUARD' | 'SEER' | 'WEREWOLVES' | 'WITCH' | 'SUMMARY';
+type Step = 'CUPID' | 'BODYGUARD' | 'SEER' | 'WEREWOLVES' | 'WITCH' | 'SUMMARY';
 
 export function NightEngineWizard() {
-  const [currentStep, setCurrentStep] = useState<Step>('BODYGUARD');
+  const status = useStream(gameStore.gameStatus);
+  const [currentStep, setCurrentStep] = useState<Step>(status.dayCount === 0 ? 'CUPID' : 'BODYGUARD');
   const [seerResult, setSeerResult] = useState<{ id: string, role: string } | null>(null);
   
   const players = useStream(gameStore.playerList);
-  const status = useStream(gameStore.gameStatus);
 
   const [draftActions, setDraftActions] = useState<Omit<NightAction, 'id' | 'resolved'>[]>([]);
   const [draftWitchState, setDraftWitchState] = useState(status.witchState);
@@ -28,8 +28,11 @@ export function NightEngineWizard() {
   const isSeerAlive = players.some(p => p.role === 'SEER' && p.isAlive);
   const areWerewolvesAlive = players.some(p => p.role === 'WEREWOLF' && p.isAlive);
   const isWitchAlive = players.some(p => p.role === 'WITCH' && p.isAlive);
+  const isCupidAlive = players.some(p => p.role === 'CUPID' && p.isAlive);
 
   // Helpers to check state
+  const cupidTargets = draftActions.filter(a => a.type === 'CUPID_LINK').map(a => a.targetId);
+  const hasCupidActioned = cupidTargets.length === 2;
   const hasBodyguardActioned = draftActions.some(a => a.type === 'BODYGUARD_PROTECT');
   const bodyguardTarget = draftActions.find(a => a.type === 'BODYGUARD_PROTECT')?.targetId;
   const hasWerewolfActioned = draftActions.some(a => a.type === 'WEREWOLF_KILL');
@@ -38,6 +41,20 @@ export function NightEngineWizard() {
   const victimName = werewolfKills.length > 0 
     ? players.find(p => p.id === werewolfKills[0])?.name 
     : null;
+
+  const handleCupidLink = (playerId: string) => {
+    setDraftActions(prev => {
+      const cupidLinks = prev.filter(a => a.type === 'CUPID_LINK');
+      const isSelected = cupidLinks.some(a => a.targetId === playerId);
+      if (isSelected) {
+        return prev.filter(a => !(a.type === 'CUPID_LINK' && a.targetId === playerId));
+      }
+      if (cupidLinks.length < 2) {
+        return [...prev, { actorId: 'cupid', targetId: playerId, type: 'CUPID_LINK' }];
+      }
+      return prev;
+    });
+  };
 
   const handleBodyguardProtect = (playerId: string) => {
     setDraftActions(prev => {
@@ -112,6 +129,7 @@ export function NightEngineWizard() {
   return (
     <div className="bg-card border-2 border-primary/20 rounded-2xl p-8 shadow-2xl">
       <div className="flex gap-2 mb-8 overflow-x-auto pb-4">
+        {status.dayCount === 0 && <StepIndicator label="Cupid" active={currentStep === 'CUPID'} done={hasCupidActioned} />}
         <StepIndicator label="Bodyguard" active={currentStep === 'BODYGUARD'} done={draftActions.some(a => a.type === 'BODYGUARD_PROTECT')} />
         <StepIndicator label="Seer" active={currentStep === 'SEER'} done={!!seerResult} />
         <StepIndicator label="Werewolves" active={currentStep === 'WEREWOLVES'} done={hasWerewolfActioned} />
@@ -120,6 +138,53 @@ export function NightEngineWizard() {
       </div>
 
       <div className="min-h-[300px]">
+        {/* CUPID STEP */}
+        {currentStep === 'CUPID' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <h2 className="text-2xl font-black mb-2 flex items-center gap-2 text-pink-400">
+              <Heart className="w-6 h-6" /> CUPID AWAKES
+            </h2>
+            {!isCupidAlive ? (
+              <div className="py-8 text-center text-muted-foreground border border-dashed border-border rounded-xl mb-6">
+                <Skull className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                <p className="text-xl font-bold uppercase tracking-widest text-destructive/50">Cupid is Eliminated</p>
+                <p className="text-sm mt-2">Wait a few seconds to preserve the mystery before continuing.</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-muted-foreground mb-6">Select exactly two players to fall in love.</p>
+                
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+                  {alivePlayers.map(player => {
+                    const isSelected = cupidTargets.includes(player.id);
+                    const isDisabled = !isSelected && cupidTargets.length >= 2;
+                    return (
+                      <button 
+                        key={player.id}
+                        disabled={isDisabled}
+                        className={`p-3 text-left border rounded-lg transition-all font-bold ${
+                          isDisabled ? 'opacity-30 cursor-not-allowed border-dashed' :
+                          isSelected ? 'bg-pink-500/20 border-pink-500 text-pink-400' :
+                          'border-border hover:bg-pink-500/10 hover:border-pink-500'
+                        }`}
+                        onClick={() => handleCupidLink(player.id)}
+                      >
+                        {player.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            
+            <ActionControls 
+              onSkip={() => setCurrentStep('BODYGUARD')} 
+              onNext={() => setCurrentStep('BODYGUARD')} 
+              disableNext={isCupidAlive && cupidTargets.length > 0 && cupidTargets.length < 2}
+            />
+          </div>
+        )}
+
                   {/* BODYGUARD STEP */}
         {currentStep === 'BODYGUARD' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -423,7 +488,7 @@ function StepIndicator({ label, active, done }: { label: string, active: boolean
   );
 }
 
-function ActionControls({ onSkip, onNext }: { onSkip: () => void, onNext: () => void }) {
+function ActionControls({ onSkip, onNext, disableNext }: { onSkip: () => void, onNext: () => void, disableNext?: boolean }) {
   return (
     <div className="mt-8 flex justify-end gap-3">
       <button 
@@ -434,7 +499,8 @@ function ActionControls({ onSkip, onNext }: { onSkip: () => void, onNext: () => 
       </button>
       <button 
         onClick={onNext}
-        className="bg-primary text-primary-foreground px-6 py-2 rounded font-bold uppercase tracking-tight text-sm hover:opacity-90 flex items-center gap-2 group"
+        disabled={disableNext}
+        className={`bg-primary text-primary-foreground px-6 py-2 rounded font-bold uppercase tracking-tight text-sm flex items-center gap-2 group ${disableNext ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90'}`}
       >
         Next Step <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
       </button>

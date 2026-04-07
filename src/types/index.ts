@@ -37,6 +37,8 @@ export interface Player {
   revealedRole?: RoleType;
   /** ID of the lover partner (Cupid mechanic). */
   loverPartnerId?: string;
+  /** Custom faction. Usually undefined, but can be LOVERS if lovers are mixed-alignment */
+  faction?: 'LOVERS';
 }
 
 export type GamePhase = 'LOBBY' | 'NIGHT' | 'DAY' | 'VOTING' | 'ELECTION' | 'REVENGE' | 'GAMEOVER';
@@ -53,7 +55,7 @@ export interface RevealPolicy {
 export interface GameStatus {
   phase: GamePhase;
   dayCount: number;
-  winner: 'VILLAGERS' | 'WEREWOLVES' | 'NONE' | null;
+  winner: 'VILLAGERS' | 'WEREWOLVES' | 'LOVERS' | 'NONE' | null;
   witchState: {
     hasHeal: boolean;
     hasPoison: boolean;
@@ -73,7 +75,8 @@ export type ActionType =
   | 'SEER_INSPECT' 
   | 'WITCH_SAVE' 
   | 'WITCH_KILL' 
-  | 'BODYGUARD_PROTECT';
+  | 'BODYGUARD_PROTECT'
+  | 'CUPID_LINK';
 
 export interface NightAction {
   id: string;

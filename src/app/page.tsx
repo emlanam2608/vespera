@@ -224,17 +224,19 @@ export default function VesperaDashboard() {
         <div className="fixed inset-0 bg-background/95 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="w-full max-w-2xl text-center bg-card border-2 border-primary/20 rounded-3xl p-8 sm:p-12 shadow-[0_0_100px_rgba(var(--primary),0.1)] animate-in zoom-in-95 duration-700">
             <div className="relative mb-8 flex justify-center">
-               <Trophy className={`w-28 h-28 drop-shadow-[0_0_20px_rgba(234,179,8,0.5)] ${status.winner === 'WEREWOLVES' ? 'text-indigo-500' : 'text-yellow-400'}`} />
+               <Trophy className={`w-28 h-28 drop-shadow-[0_0_20px_rgba(234,179,8,0.5)] ${status.winner === 'WEREWOLVES' ? 'text-indigo-500' : status.winner === 'LOVERS' ? 'text-pink-500' : 'text-yellow-400'}`} />
                <div className="absolute inset-0 animate-ping opacity-20 bg-primary/40 rounded-full blur-2xl scale-150" />
             </div>
 
-            <h2 className={`text-5xl sm:text-7xl font-black mb-4 uppercase tracking-tighter italic ${status.winner === 'WEREWOLVES' ? 'text-indigo-400' : 'text-yellow-400'}`}>
-              {status.winner === 'WEREWOLVES' ? 'Werewolves Win!' : 'Villagers Win!'}
+            <h2 className={`text-5xl sm:text-7xl font-black mb-4 uppercase tracking-tighter italic ${status.winner === 'WEREWOLVES' ? 'text-indigo-400' : status.winner === 'LOVERS' ? 'text-pink-400' : 'text-yellow-400'}`}>
+              {status.winner === 'WEREWOLVES' ? 'Werewolves Win!' : status.winner === 'LOVERS' ? 'Lovers Win!' : 'Villagers Win!'}
             </h2>
 
             <p className="text-muted-foreground font-medium mb-10 max-w-md mx-auto">
               {status.winner === 'WEREWOLVES'
                 ? "The village has been overrun by the pack. Darkness prevails."
+                : status.winner === 'LOVERS'
+                ? "True love conquers all. The lovers survived against all odds."
                 : "The pack has been hunted down. Peace returns to Vespera."}
             </p>
 
@@ -305,6 +307,7 @@ export default function VesperaDashboard() {
                              {p.revealedRole === 'MAYOR' && <Crown className="w-4 h-4" />}
                              {p.revealedRole === 'IDIOT' && <AlertTriangle className="w-4 h-4" />}
                              {p.revealedRole === 'ELDER' && <Flame className="w-4 h-4" />}
+                             {p.revealedRole === 'CUPID' && <Heart className="w-4 h-4" />}
                              {(!p.revealedRole || p.revealedRole === 'VILLAGER') && <User className="w-4 h-4" />}
                              <span className="uppercase">{p.revealedRole ? p.revealedRole : 'Unknown Role'}</span>
                            </div>
@@ -348,6 +351,7 @@ export default function VesperaDashboard() {
                     {p.revealedRole === 'MAYOR' && <Crown className="w-4 h-4" />}
                     {p.revealedRole === 'IDIOT' && <AlertTriangle className="w-4 h-4" />}
                     {p.revealedRole === 'ELDER' && <Flame className="w-4 h-4" />}
+                    {p.revealedRole === 'CUPID' && <Heart className="w-4 h-4" />}
                     {(!p.revealedRole || p.revealedRole === 'VILLAGER') && <User className="w-4 h-4" />}
                     <span className="uppercase">{p.revealedRole ? p.revealedRole : 'Unknown Role'}</span>
                   </div>
@@ -380,6 +384,7 @@ function PlayerCard({ player }: { player: Player }) {
       case 'MAYOR': return <Crown className="w-4 h-4 text-yellow-400" />;
       case 'IDIOT': return <AlertTriangle className="w-4 h-4 text-pink-400" />;
       case 'ELDER': return <Flame className="w-4 h-4 text-amber-400" />;
+      case 'CUPID': return <Heart className="w-4 h-4 text-pink-400" />;
       default: return <User className="w-4 h-4 text-muted-foreground" />;
     }
   };
@@ -458,6 +463,11 @@ function PlayerCard({ player }: { player: Player }) {
               ? <><ShieldOff className="w-2.5 h-2.5" /> Shield Cracked</>
               : <><Shield className="w-2.5 h-2.5" /> Shield Intact</>}
           </span>
+        )}
+        {player.loverPartnerId && (
+           <span className="text-[10px] font-black uppercase tracking-widest text-pink-500 bg-pink-500/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+             <Heart className="w-3 h-3 fill-pink-500" /> Lover
+           </span>
         )}
       </div>
 
