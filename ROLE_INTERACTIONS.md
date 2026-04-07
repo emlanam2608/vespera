@@ -44,6 +44,7 @@ During the `NIGHT` phase, roles MUST always awaken in this specific sequence to 
 * **Action**: If the Hunter is eliminated (either during the day vote or night phase), they immediately take a "Last Stand" (Hunter Revenge Phase).
 * **Resolution**: The moderator selects a target for the Hunter to shoot as their dying breath.
 * **Constraints**: The Hunter Revenge is **optional**. The moderator can choose to "Skip Target" if the Hunter decides to spare the village. This action is drafted and requires clicking "Confirm Shoot".
+* **Village Curse**: If `villageCursed = true`, the Hunter's Last Stand is **suppressed**. They die silently — the `REVENGE` phase is **not** triggered.
 
 ### 6. Mayor
 * **Daytime Voting**: The Mayor's vote counts **double** (weight = 2).
@@ -59,11 +60,42 @@ During the `NIGHT` phase, roles MUST always awaken in this specific sequence to 
 * **UI**: The Idiot's card shows an "Exposed · 0 votes" badge. The VotingPanel locks their counter at 0.
 
 ### 8. Elder
-* **Special Rule**: If the Elder is eliminated by a **Village vote** (daytime execution), a **Village Curse** is triggered:
-  * The `villageCursed` flag is set to `true` in `GameStatus`.
-  * The Seer, Bodyguard, and Witch **lose all their powers** for the rest of the game.
-  * A `SPECIAL` log entry is created and a "CURSED" badge appears in the header.
-* **Night Phase Death**: If the Elder is killed by Werewolves at night, no curse is triggered.
+* **Shield (Resilience)**: The Elder requires **two** successful Werewolf attacks to die at night.
+  * **First wolf hit** (no Bodyguard cover): Sets `elderShieldCracked = true`. The Elder **survives**. A log entry announces the shield absorbed the blow.
+  * **Second wolf hit**: The shield is already cracked — the Elder is eliminated. **No curse triggered.**
+  * **Bodyguard protection**: Fully negates the wolf attack. The shield does **not** crack.
+  * **Edge case — Witch saves after first hit**: The wolf attack cracks the shield (`elderShieldCracked = true`), but the Witch's heal keeps the Elder alive. The shield **remains cracked** for future nights.
+* **Instant-death sources** (bypass the shield entirely):
+  * Witch's Poison
+  * Hunter's Shot (Last Stand)
+  * Village Daytime Execution
+* **The Curse (Global Debuff)**: Triggered **only** if the Elder is killed by:
+  1. **Village Daytime Execution** (`voteExecution`)
+  2. **Witch's Poison** (`resolveNight` — witch kill targeting Elder)
+  * **Effect**: Sets `villageCursed = true` in `GameStatus`. All roles listed in the **Village Curse — Affected Roles** table below lose their powers for the rest of the game.
+  * A `SPECIAL` log entry is created and a `🔥 CURSED` badge appears in the header.
+* **UI**:
+  * Player card shows a **Shield badge** (blue = intact, amber = cracked) while the Elder is alive.
+  * In the WEREWOLVES step of the Night Engine, a small shield icon appears next to the Elder's target button indicating current shield state.
+
+
+---
+
+## Village Curse — Affected Roles
+
+This is the **canonical reference** for which roles are suppressed when `villageCursed = true`.
+Always check this table when implementing any new role's special ability.
+
+| Role | Ability Lost | Suppression Behaviour |
+|------|-------------|----------------------|
+| Seer | Inspection | Night Engine shows Ghost Pane: "Village Curse Active" instead of player grid |
+| Bodyguard | Protection | Night Engine shows Ghost Pane: "Village Curse Active" instead of player grid |
+| Witch | Both potions | Night Engine shows Ghost Pane: "Village Curse Active" instead of potion buttons |
+| Hunter | Last Stand (Revenge shot) | Death processed silently — `REVENGE` phase is **not** triggered |
+
+> **Rule for new roles**: If a new power role should be affected by the curse, add it to this table AND implement the suppression check before shipping.
+
+---
 
 ## Daytime Voting Rules
 

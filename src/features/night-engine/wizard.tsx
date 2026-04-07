@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useStream } from '@/logic/antigravity/stream';
 import { gameStore } from '@/logic/game-store';
 import { Player, NightAction } from '@/types';
-import { Check, ArrowRight, Zap, Eye, Shield, Heart, Skull, Play, BarChart2, ChevronLeft, CheckCircle, UserPlus, XCircle } from 'lucide-react';
+import { Check, ArrowRight, Zap, Eye, Shield, ShieldOff, Heart, Skull, Flame, Play, BarChart2, ChevronLeft, CheckCircle, UserPlus, XCircle } from 'lucide-react';
 
 type Step = 'BODYGUARD' | 'SEER' | 'WEREWOLVES' | 'WITCH' | 'SUMMARY';
 
@@ -120,7 +120,7 @@ export function NightEngineWizard() {
       </div>
 
       <div className="min-h-[300px]">
-        {/* BODYGUARD STEP */}
+                  {/* BODYGUARD STEP */}
         {currentStep === 'BODYGUARD' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <h2 className="text-2xl font-black mb-2 flex items-center gap-2 text-blue-400">
@@ -131,6 +131,12 @@ export function NightEngineWizard() {
                 <Skull className="w-12 h-12 mx-auto mb-4 opacity-20" />
                 <p className="text-xl font-bold uppercase tracking-widest text-destructive/50">Bodyguard is Eliminated</p>
                 <p className="text-sm mt-2">Wait a few seconds to preserve the mystery before continuing.</p>
+              </div>
+            ) : status.villageCursed ? (
+              <div className="py-8 text-center border border-dashed border-amber-500/30 rounded-xl mb-6">
+                <Flame className="w-12 h-12 mx-auto mb-4 text-amber-500/40" />
+                <p className="text-xl font-bold uppercase tracking-widest text-amber-500/60">Village Curse Active</p>
+                <p className="text-sm mt-2 text-muted-foreground">The Bodyguard's power has been suppressed.</p>
               </div>
             ) : (
               <>
@@ -166,7 +172,7 @@ export function NightEngineWizard() {
           </div>
         )}
 
-        {/* SEER STEP */}
+                {/* SEER STEP */}
         {currentStep === 'SEER' && (
           <div className="animate-in fade-in slide-in-from-right-4 duration-500">
             <h2 className="text-2xl font-black mb-2 flex items-center gap-2 text-purple-400">
@@ -177,6 +183,12 @@ export function NightEngineWizard() {
                 <Skull className="w-12 h-12 mx-auto mb-4 opacity-20" />
                 <p className="text-xl font-bold uppercase tracking-widest text-destructive/50">Seer is Eliminated</p>
                 <p className="text-sm mt-2">Wait a few seconds to preserve the mystery before continuing.</p>
+              </div>
+            ) : status.villageCursed ? (
+              <div className="py-8 text-center border border-dashed border-amber-500/30 rounded-xl mb-6">
+                <Flame className="w-12 h-12 mx-auto mb-4 text-amber-500/40" />
+                <p className="text-xl font-bold uppercase tracking-widest text-amber-500/60">Village Curse Active</p>
+                <p className="text-sm mt-2 text-muted-foreground">The Seer's vision has been clouded by the curse.</p>
               </div>
             ) : (
               <>
@@ -217,7 +229,7 @@ export function NightEngineWizard() {
           </div>
         )}
 
-        {/* WEREWOLVES STEP */}
+                {/* WEREWOLVES STEP */}
         {currentStep === 'WEREWOLVES' && (
           <div className="animate-in fade-in slide-in-from-right-4 duration-500">
             <h2 className="text-2xl font-black mb-2 flex items-center gap-2 text-destructive">
@@ -236,6 +248,7 @@ export function NightEngineWizard() {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
                   {alivePlayers.map(player => {
                     const isSelected = werewolfKills.includes(player.id);
+                    const isElder = player.role === 'ELDER';
                     return (
                       <button 
                         key={player.id}
@@ -245,7 +258,16 @@ export function NightEngineWizard() {
                         }`}
                         onClick={() => handleWerewolfKill(player.id)}
                       >
-                        {player.name}
+                        <span>{player.name}</span>
+                        {isElder && (
+                          <span className={`ml-2 text-[9px] font-black uppercase tracking-widest inline-flex items-center gap-0.5 ${
+                            status.elderShieldCracked ? 'text-amber-400' : 'text-blue-400'
+                          }`}>
+                            {status.elderShieldCracked
+                              ? <><ShieldOff className="w-2.5 h-2.5" />Cracked</>
+                              : <><Shield className="w-2.5 h-2.5" />Shield</>}
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -260,7 +282,7 @@ export function NightEngineWizard() {
           </div>
         )}
 
-        {/* WITCH STEP */}
+                {/* WITCH STEP */}
         {currentStep === 'WITCH' && (
           <div className="animate-in fade-in slide-in-from-right-4 duration-500">
             <h2 className="text-2xl font-black mb-2 flex items-center gap-2 text-green-400">
@@ -272,6 +294,12 @@ export function NightEngineWizard() {
                 <Skull className="w-12 h-12 mx-auto mb-4 opacity-20" />
                 <p className="text-xl font-bold uppercase tracking-widest text-destructive/50">Witch is Eliminated</p>
                 <p className="text-sm mt-2">Wait a few seconds to preserve the mystery before continuing.</p>
+              </div>
+            ) : status.villageCursed ? (
+              <div className="py-8 text-center border border-dashed border-amber-500/30 rounded-xl mb-6">
+                <Flame className="w-12 h-12 mx-auto mb-4 text-amber-500/40" />
+                <p className="text-xl font-bold uppercase tracking-widest text-amber-500/60">Village Curse Active</p>
+                <p className="text-sm mt-2 text-muted-foreground">The Witch's potions have been rendered inert by the curse.</p>
               </div>
             ) : (
               <>

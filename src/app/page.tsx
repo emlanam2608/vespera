@@ -7,6 +7,7 @@ import {
   Skull,
   Heart,
   Shield,
+  ShieldOff,
   Eye,
   Zap,
   Target,
@@ -38,6 +39,10 @@ export default function VesperaDashboard() {
 
   const [hunterTarget, setHunterTarget] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [showMorningSummary, setShowMorningSummary] = useState(false);
+  const [lastDayCount, setLastDayCount] = useState(status.dayCount);
+  const logs = useStream(gameStore.gameLogs);
+  const revealQueue = useStream(gameStore.revealQueue);
 
   useEffect(() => {
     setMounted(true);
@@ -45,6 +50,13 @@ export default function VesperaDashboard() {
       router.push('/setup');
     }
   }, [status.phase, router]);
+
+  useEffect(() => {
+    if ((status.phase === 'DAY' || status.phase === 'REVENGE') && status.dayCount > lastDayCount) {
+      setShowMorningSummary(true);
+      setLastDayCount(status.dayCount);
+    }
+  }, [status.phase, status.dayCount, lastDayCount]);
 
   if (!mounted) return null;
 
@@ -258,11 +270,106 @@ export default function VesperaDashboard() {
           </div>
         </div>
       )}
+      {/* MORNING SUMMARY OVERLAY */}
+      {showMorningSummary && (
+        <div className="fixed inset-0 bg-background/95 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-card border-2 border-indigo-500/20 rounded-3xl p-8 sm:p-12 shadow-2xl animate-in zoom-in-95 duration-500 text-center">
+            <h2 className="text-4xl sm:text-5xl font-black mb-2 uppercase tracking-tighter italic text-indigo-400 flex justify-center items-center gap-3">
+              <Sun className="w-10 h-10" /> Morning Summary
+            </h2>
+            <p className="text-muted-foreground font-medium mb-10">The sun rises on Day {status.dayCount}. Here is what happened last night:</p>
+            
+            <div className="space-y-4 mb-10 text-left">
+              {logs.filter(l => l.dayCount === status.dayCount - 1 && l.type === 'NIGHT_DEATH').length === 0 ? (
+                <div className="text-center p-6 border border-dashed border-border rounded-xl">
+                  <Heart className="w-8 h-8 mx-auto mb-2 text-green-500 opacity-80" />
+                  <p className="font-bold text-lg">Nobody died last night!</p>
+                  <p className="text-muted-foreground text-sm">The village awakens safely.</p>
+                </div>
+              ) : (
+                logs.filter(l => l.dayCount === status.dayCount - 1 && l.type === 'NIGHT_DEATH').map(log => {
+                  const targetIds = log.involvedPlayerIds || [];
+                  const targetPlayers = players.filter(p => targetIds.includes(p.id));
+                  return (
+                    <div key={log.id} className="p-4 border border-indigo-500/30 bg-indigo-500/5 rounded-xl flex items-start gap-4">
+                      <Skull className="w-6 h-6 text-indigo-400 shrink-0 mt-1" />
+                      <div>
+                        <p className="font-bold text-lg mb-1">{log.message}</p>
+                        {targetPlayers.map(p => (
+                           <div key={p.id} className="flex items-center gap-2 text-sm text-indigo-300 font-bold bg-indigo-500/10 px-3 py-1.5 rounded w-fit mt-2">
+                             {p.revealedRole === 'WEREWOLF' && <Zap className="w-4 h-4" />}
+                             {p.revealedRole === 'SEER' && <Eye className="w-4 h-4" />}
+                             {p.revealedRole === 'WITCH' && <Heart className="w-4 h-4" />}
+                             {p.revealedRole === 'BODYGUARD' && <Shield className="w-4 h-4" />}
+                             {p.revealedRole === 'HUNTER' && <Target className="w-4 h-4" />}
+                             {p.revealedRole === 'MAYOR' && <Crown className="w-4 h-4" />}
+                             {p.revealedRole === 'IDIOT' && <AlertTriangle className="w-4 h-4" />}
+                             {p.revealedRole === 'ELDER' && <Flame className="w-4 h-4" />}
+                             {(!p.revealedRole || p.revealedRole === 'VILLAGER') && <User className="w-4 h-4" />}
+                             <span className="uppercase">{p.revealedRole ? p.revealedRole : 'Unknown Role'}</span>
+                           </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button
+              onClick={() => setShowMorningSummary(false)}
+              className="bg-indigo-500 text-white px-10 py-4 rounded-xl text-lg font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-xl shadow-indigo-500/25 w-full sm:w-auto"
+            >
+              Continue to Village
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* DEATH REVEAL OVERLAY (Daytime / Revenge kills) */}
+      {revealQueue.length > 0 && (
+        <div className="fixed inset-0 bg-background/95 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-card border-2 border-red-500/20 rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-500 text-center">
+            <h2 className="text-3xl font-black mb-1 uppercase tracking-tighter italic text-red-500 flex justify-center items-center gap-3">
+              <Skull className="w-8 h-8" /> Identity Revealed
+            </h2>
+            <p className="text-muted-foreground font-medium mb-8">The village witnesses the true nature of the deceased.</p>
+            
+            <div className="space-y-4 mb-8 text-left">
+              {revealQueue.map(p => (
+                <div key={p.id} className="p-5 border border-red-500/30 bg-red-500/5 rounded-xl flex items-center justify-between">
+                  <span className="font-black text-xl">{p.name}</span>
+                  <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 text-red-400 rounded-lg font-bold text-sm">
+                    {p.revealedRole === 'WEREWOLF' && <Zap className="w-4 h-4" />}
+                    {p.revealedRole === 'SEER' && <Eye className="w-4 h-4" />}
+                    {p.revealedRole === 'WITCH' && <Heart className="w-4 h-4" />}
+                    {p.revealedRole === 'BODYGUARD' && <Shield className="w-4 h-4" />}
+                    {p.revealedRole === 'HUNTER' && <Target className="w-4 h-4" />}
+                    {p.revealedRole === 'MAYOR' && <Crown className="w-4 h-4" />}
+                    {p.revealedRole === 'IDIOT' && <AlertTriangle className="w-4 h-4" />}
+                    {p.revealedRole === 'ELDER' && <Flame className="w-4 h-4" />}
+                    {(!p.revealedRole || p.revealedRole === 'VILLAGER') && <User className="w-4 h-4" />}
+                    <span className="uppercase">{p.revealedRole ? p.revealedRole : 'Unknown Role'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={() => gameStore.clearRevealQueue()}
+              className="bg-red-500 text-white px-10 py-4 rounded-xl text-lg font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-500/25 w-full sm:w-auto"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function PlayerCard({ player }: { player: Player }) {
+  const status = useStream(gameStore.gameStatus);
   const getRoleIcon = (role: string) => {
     switch (role) {
       case 'WEREWOLF': return <Zap className="w-4 h-4 text-red-500" />;
@@ -278,6 +385,8 @@ function PlayerCard({ player }: { player: Player }) {
   };
 
   const isExposed = player.status === 'Exposed';
+  const displayRole = player.isAlive ? player.role : (player.revealedRole || player.role);
+  const isRevealed = !player.isAlive && player.revealedRole !== undefined;
 
   return (
     <div
@@ -320,9 +429,10 @@ function PlayerCard({ player }: { player: Player }) {
       <h3 className="text-base sm:text-lg font-black leading-tight mb-1 pr-16 truncate">{player.name}</h3>
 
       <div className="flex items-center gap-1.5 mt-2">
-        {getRoleIcon(player.role)}
+        {getRoleIcon(displayRole)}
         <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-          {isExposed ? 'Idiot (Exposed)' : player.role}
+          {isExposed && player.isAlive ? 'Idiot (Exposed)' : displayRole} 
+          {isRevealed && ' (Revealed)'}
         </span>
       </div>
 
@@ -337,6 +447,17 @@ function PlayerCard({ player }: { player: Player }) {
            <span className="text-[10px] font-black uppercase tracking-widest text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded flex items-center gap-1">
              <Crown className="w-3 h-3" /> Mayor (×2)
            </span>
+        )}
+        {player.role === 'ELDER' && player.isAlive && (
+          <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded flex items-center gap-1 ${
+            status.elderShieldCracked
+              ? 'text-amber-400 bg-amber-500/10'
+              : 'text-blue-400 bg-blue-500/10'
+          }`}>
+            {status.elderShieldCracked
+              ? <><ShieldOff className="w-2.5 h-2.5" /> Shield Cracked</>
+              : <><Shield className="w-2.5 h-2.5" /> Shield Intact</>}
+          </span>
         )}
       </div>
 

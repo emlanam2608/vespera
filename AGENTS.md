@@ -23,3 +23,24 @@ These rules are mandatory for the Vespera Werewolf Moderator App.
 ## 4. Role Interactions
 Role-specific game logic, constraints, and night-waking sequences are strictly defined in an external document.
 **See the full role specifications here:** [ROLE_INTERACTIONS.md](./ROLE_INTERACTIONS.md)
+
+
+# Agent Operational Guidelines: Efficiency & Focus
+
+## 1. Core Execution Principle
+- **Task-Centric Approach**: Focus exclusively on the primary task defined in the user prompt. Do not deviate into unrelated features or suggest "nice-to-have" improvements unless explicitly asked.
+- **Minimalism in Communication**: Provide concise explanations. Avoid conversational filler (e.g., "I understand," "Here is the solution," "I hope this helps"). Jump straight to the technical implementation or the answer.
+
+## 2. Response Formatting
+- **Code-First**: If the task is coding, prioritize providing the code block immediately. Keep prose to a minimum, using it only to explain complex logic or critical warnings.
+- **No Redundancy**: Do not repeat the user's prompt or summarize what you are about to do. Just do it.
+- **Direct Answers**: For conceptual questions, provide a structured response (bullet points or tables) instead of long-form paragraphs.
+
+## 3. Scope Control
+- **Strict Boundary**: Stay within the current file context or the specific module being discussed. Do not refactor unrelated files unless a global change is strictly necessary for the task to function.
+- **Zero Hallucination**: If a requirement is ambiguous, ask a single clarifying question instead of making assumptions and generating redundant code.
+
+## 4. Antigravity & Next.js Context
+- **Technical Precision**: When implementing logic for Project Vespera, focus on reactive patterns (Streams/Atoms). Do not provide boilerplate for standard React state if the project rules dictate Antigravity.
+
+If the response can be purely code or a table, omit all introductory and concluding text.

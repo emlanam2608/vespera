@@ -33,11 +33,22 @@ export interface Player {
   isModerator?: boolean;
   status?: PlayerStatus;
   isMayor?: boolean;
+  /** Role publicly revealed after death (per reveal policy). Undefined = not yet revealed. */
+  revealedRole?: RoleType;
+  /** ID of the lover partner (Cupid mechanic). */
+  loverPartnerId?: string;
 }
 
 export type GamePhase = 'LOBBY' | 'NIGHT' | 'DAY' | 'VOTING' | 'ELECTION' | 'REVENGE' | 'GAMEOVER';
 
 export type TieBreakRule = 'NO_EXECUTION' | 'DOUBLE_EXECUTION';
+
+export interface RevealPolicy {
+  /** Always reveal role when a player is lynched by vote. */
+  revealOnExecution: boolean;
+  /** Reveal role in the morning summary after a night death. */
+  revealOnNightDeath: boolean;
+}
 
 export interface GameStatus {
   phase: GamePhase;
@@ -51,6 +62,10 @@ export interface GameStatus {
   pendingHunterId: string | null;
   tieBreakRule: TieBreakRule;
   villageCursed: boolean;
+  /** True once the Elder has absorbed their first wolf attack. Resets on new game. */
+  elderShieldCracked: boolean;
+  /** Identity reveal rules. */
+  revealPolicy: RevealPolicy;
 }
 
 export type ActionType = 
