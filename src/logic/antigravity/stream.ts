@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 export type Listener<T> = (value: T) => void;
+export interface ReadonlyStream<T> { readonly value: T; subscribe(listener: Listener<T>): () => void; }
 
 export class Stream<T> {
   private listeners: Set<Listener<T>> = new Set();
@@ -26,9 +27,6 @@ export class Stream<T> {
 
   subscribe(listener: Listener<T>): () => void {
     this.listeners.add(listener);
-    // Notify immediate value to new subscriber
-    listener(this.currentValue);
-    
     return () => {
       this.listeners.delete(listener);
     };
@@ -43,14 +41,8 @@ export function createStream<T>(initialValue: T): Stream<T> {
   return new Stream<T>(initialValue);
 }
 
-export function useStream<T>(stream: Stream<T>): T {
-  const [value, setValue] = useState<T>(stream.value);
-
-  useEffect(() => {
-    return stream.subscribe((val) => {
-      setValue(val);
-    });
-  }, [stream]);
-
-  return value;
+export function useStream<T>(stream: ReadonlyStream<T>): T {
+  const subscribe = useCallback((listener: Listener<T>) => stream.subscribe(listener), [stream]);
+  const getSnapshot = useCallback(() => stream.value, [stream]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Vespera
 
-## Getting Started
+Vespera is a private, local-first Werewolf moderator assistant for games played around a physical table. It guides setup, records table decisions, previews rule consequences, and applies changes only after the host confirms them.
 
-First, run the development server:
+It does not collect ballots, run multiplayer rooms, expose a public player screen, or decide when a game is over.
+
+## Run locally
+
+Requires Node.js 20 or newer.
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`. No account or backend is required.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Quality checks
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
 
-## Learn More
+## Product flow
 
-To learn more about Next.js, take a look at the following resources:
+1. Add and order players.
+2. choose a role composition, then manually assign or privately shuffle it.
+3. Confirm setup to create the committed session.
+4. Record daytime outcomes or open the guided night sequence.
+5. Review every consequence before confirming it.
+6. Resolve a Hunter response separately when required.
+7. Dismiss or confirm advisory winner suggestions.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The running-game roster shows public state only. Secret roles are revealed inside an individual private player panel.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Architecture
 
-## Deploy on Vercel
+- `src/logic/antigravity/stream.ts` is the only generic state primitive.
+- `src/logic/game-store.ts` owns every committed state mutation. Components receive read-only streams.
+- `src/logic/rules.ts` contains mutation-free preview and winner functions.
+- Setup, day, night, and Hunter selections remain local React drafts until confirmation.
+- Structured `GameEvent` records are generated during commits; display strings never reconstruct game state.
+- The root route is a Server Component with one small client application boundary.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The canonical role behavior is documented in [ROLE_INTERACTIONS.md](./ROLE_INTERACTIONS.md).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Storage and recovery
+
+The complete committed session is stored in `localStorage` under the versioned `vespera-session-v2` envelope. The adapter safely validates V2 data and can migrate the original `vespera-players`, `vespera-status`, `vespera-actions`, and `vespera-logs` records.
+
+Unconfirmed drafts are intentionally not persisted. The latest confirmed mutation stores a complete pre-commit checkpoint and can be undone once; there is no redo.
+
+## Testing
+
+Vitest covers pure rule interactions, stale-preview rejection, confirmation and undo behavior, safe persistence parsing, legacy migration, and dangling-reference cleanup. Browser verification should cover the full mobile host workflow whenever interaction or layout code changes.
