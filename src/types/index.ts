@@ -1,104 +1,39 @@
-export type RoleType = 
-  | 'VILLAGER' 
-  | 'WEREWOLF' 
-  | 'SEER' 
-  | 'HUNTER' 
-  | 'WITCH' 
-  | 'CUPID' 
-  | 'BODYGUARD'
-  | 'MAYOR'
-  | 'IDIOT'
-  | 'ELDER';
+export type RoleType = 'VILLAGER' | 'WEREWOLF' | 'SEER' | 'HUNTER' | 'WITCH' | 'CUPID' | 'BODYGUARD' | 'MAYOR' | 'IDIOT' | 'ELDER';
+export type Winner = 'VILLAGERS' | 'WEREWOLVES' | 'LOVERS';
+export type SessionStage = 'SETUP' | 'RUNNING' | 'FINISHED';
+export type GamePhase = 'DAY' | 'NIGHT' | 'HUNTER_RESPONSE';
+export type PlayerStatus = 'ALIVE' | 'EXPOSED';
+export type NightStep = 'CUPID' | 'BODYGUARD' | 'SEER' | 'WEREWOLVES' | 'WITCH' | 'REVIEW';
 
-export const ROLE_WEIGHTS: Record<RoleType, number> = {
-  VILLAGER: 1,
-  WEREWOLF: -6,
-  SEER: 5,
-  WITCH: 4,
-  BODYGUARD: 3,
-  HUNTER: 3,
-  IDIOT: 2,
-  ELDER: 2,
-  MAYOR: 2,
-  CUPID: -2,
+export interface Player { id: string; name: string; role: RoleType; isAlive: boolean; status: PlayerStatus; isMayor: boolean; loverPartnerId?: string; faction?: 'LOVERS'; }
+export interface RoleMeta { label: string; faction: 'VILLAGE' | 'WEREWOLF' | 'NEUTRAL'; color: string; balanceWeight: number; unique: boolean; wakeOrder?: number; cursed: boolean; }
+export const ROLE_CATALOG: Record<RoleType, RoleMeta> = {
+  VILLAGER: { label: 'Villager', faction: 'VILLAGE', color: 'slate', balanceWeight: 1, unique: false, cursed: false },
+  WEREWOLF: { label: 'Werewolf', faction: 'WEREWOLF', color: 'red', balanceWeight: -6, unique: false, wakeOrder: 4, cursed: false },
+  BODYGUARD: { label: 'Bodyguard', faction: 'VILLAGE', color: 'blue', balanceWeight: 3, unique: true, wakeOrder: 2, cursed: true },
+  SEER: { label: 'Seer', faction: 'VILLAGE', color: 'violet', balanceWeight: 5, unique: true, wakeOrder: 3, cursed: true },
+  WITCH: { label: 'Witch', faction: 'VILLAGE', color: 'emerald', balanceWeight: 4, unique: true, wakeOrder: 5, cursed: true },
+  HUNTER: { label: 'Hunter', faction: 'VILLAGE', color: 'orange', balanceWeight: 3, unique: true, cursed: true },
+  CUPID: { label: 'Cupid', faction: 'NEUTRAL', color: 'pink', balanceWeight: -2, unique: true, wakeOrder: 1, cursed: false },
+  MAYOR: { label: 'Mayor', faction: 'VILLAGE', color: 'amber', balanceWeight: 2, unique: true, cursed: false },
+  IDIOT: { label: 'Idiot', faction: 'VILLAGE', color: 'fuchsia', balanceWeight: 2, unique: true, cursed: false },
+  ELDER: { label: 'Elder', faction: 'VILLAGE', color: 'yellow', balanceWeight: 2, unique: true, cursed: false },
 };
 
-export type PlayerStatus = 'Alive' | 'Idioted' | 'Exposed';
-
-export interface Player {
-  id: string;
-  name: string;
-  role: RoleType;
-  isAlive: boolean;
-  isModerator?: boolean;
-  status?: PlayerStatus;
-  isMayor?: boolean;
-  /** Role publicly revealed after death (per reveal policy). Undefined = not yet revealed. */
-  revealedRole?: RoleType;
-  /** ID of the lover partner (Cupid mechanic). */
-  loverPartnerId?: string;
-  /** Custom faction. Usually undefined, but can be LOVERS if lovers are mixed-alignment */
-  faction?: 'LOVERS';
-}
-
-export type GamePhase = 'LOBBY' | 'NIGHT' | 'DAY' | 'VOTING' | 'ELECTION' | 'REVENGE' | 'GAMEOVER';
-
-export type TieBreakRule = 'NO_EXECUTION' | 'DOUBLE_EXECUTION';
-
-export interface RevealPolicy {
-  /** Always reveal role when a player is lynched by vote. */
-  revealOnExecution: boolean;
-  /** Reveal role in the morning summary after a night death. */
-  revealOnNightDeath: boolean;
-}
-
-export interface GameStatus {
-  phase: GamePhase;
-  dayCount: number;
-  winner: 'VILLAGERS' | 'WEREWOLVES' | 'LOVERS' | 'NONE' | null;
-  witchState: {
-    hasHeal: boolean;
-    hasPoison: boolean;
-  };
-  lastProtectedId: string | null;
-  pendingHunterId: string | null;
-  tieBreakRule: TieBreakRule;
-  villageCursed: boolean;
-  /** True once the Elder has absorbed their first wolf attack. Resets on new game. */
-  elderShieldCracked: boolean;
-  /** Identity reveal rules. */
-  revealPolicy: RevealPolicy;
-}
-
-export type ActionType = 
-  | 'WEREWOLF_KILL' 
-  | 'SEER_INSPECT' 
-  | 'WITCH_SAVE' 
-  | 'WITCH_KILL' 
-  | 'BODYGUARD_PROTECT'
-  | 'CUPID_LINK';
-
-export interface NightAction {
-  id: string;
-  actorId: string;
-  targetId: string;
-  type: ActionType;
-  resolved: boolean;
-}
-
-export type LogEventType = 
-  | 'EXECUTION'
-  | 'NIGHT_DEATH'
-  | 'ABILITY'
-  | 'SPECIAL'
-  | 'INFO';
-
-export interface GameLog {
-  id: string;
-  timestamp: number;
-  dayCount: number;
-  phase: GamePhase;
-  type: LogEventType;
-  message: string;
-  involvedPlayerIds: string[];
-}
+export interface GameStatus { stage: SessionStage; phase: GamePhase; dayNumber: number; confirmedWinner: Winner | null; suggestedWinner: Winner | null; witchResources: { healAvailable: boolean; poisonAvailable: boolean }; lastProtectedPlayerId: string | null; pendingHunterId: string | null; villageCursed: boolean; elderShield: 'INTACT' | 'CRACKED'; }
+export interface SetupDraft { players: Player[]; }
+export interface DayOutcomeDraft { type: 'ELIMINATION' | 'NO_ELIMINATION' | 'MAYOR_ELECTION'; playerId?: string; }
+export interface NightDraft { cupidTargetIds: string[]; bodyguardTargetId: string | null; seerTargetId: string | null; werewolfTargetId: string | null; witchSaveTargetId: string | null; witchPoisonTargetId: string | null; }
+export type ResolutionEffectType = 'ELIMINATE' | 'EXPOSE_IDIOT' | 'ASSIGN_MAYOR' | 'LINK_LOVERS' | 'CRACK_ELDER_SHIELD' | 'ACTIVATE_CURSE' | 'CONSUME_POTION' | 'SET_LAST_PROTECTED' | 'TRIGGER_HUNTER' | 'ADVANCE_DAY';
+export interface ResolutionEffect { type: ResolutionEffectType; playerId?: string; relatedPlayerId?: string; resource?: 'HEAL' | 'POISON'; explanation: string; }
+export interface ModeratorAnnouncement { text: string; playerIds: string[]; }
+export interface ResolutionPreview { effects: ResolutionEffect[]; announcements: ModeratorAnnouncement[]; warnings: string[]; fingerprint: string; }
+export type GameEventType = 'SETUP' | 'DAY' | 'NIGHT' | 'HUNTER' | 'CORRECTION' | 'SYSTEM' | 'FINISH';
+export interface GameEvent { id: string; createdAt: number; dayNumber: number; phase: GamePhase; type: GameEventType; summary: string; playerIds: string[]; effects: ResolutionEffect[]; }
+export interface NightAction { type: keyof Omit<NightDraft, 'cupidTargetIds'> | 'cupidTargetIds'; targetIds: string[]; }
+export interface SessionSnapshot { players: Player[]; status: GameStatus; nightActions: NightAction[]; events: GameEvent[]; }
+export interface UndoCheckpoint { label: string; snapshot: SessionSnapshot; }
+export interface PersistedSessionV2 extends SessionSnapshot { version: 2; savedAt: number; undoCheckpoint: UndoCheckpoint | null; }
+export interface PlayerCorrection { type: 'ELIMINATE' | 'REVIVE' | 'TOGGLE_MAYOR'; playerId: string; }
+export const emptyNightDraft = (): NightDraft => ({ cupidTargetIds: [], bodyguardTargetId: null, seerTargetId: null, werewolfTargetId: null, witchSaveTargetId: null, witchPoisonTargetId: null });
+export const defaultStatus = (): GameStatus => ({ stage: 'SETUP', phase: 'DAY', dayNumber: 1, confirmedWinner: null, suggestedWinner: null, witchResources: { healAvailable: true, poisonAvailable: true }, lastProtectedPlayerId: null, pendingHunterId: null, villageCursed: false, elderShield: 'INTACT' });

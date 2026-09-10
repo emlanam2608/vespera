@@ -9,10 +9,15 @@ It must be strictly followed when adding new features or resolving bugs related 
 
 ## Night Waking Order
 During the `NIGHT` phase, roles MUST always awaken in this specific sequence to prevent resolution conflicts:
-1. **Bodyguard**
-2. **Seer**
-3. **Werewolves**
-4. **Witch**
+1. **Cupid** (first night only)
+2. **Bodyguard**
+3. **Seer**
+4. **Werewolves**
+5. **Witch**
+
+## Host Confirmation Boundary
+
+Vespera is a private host assistant, not the authority for the table. Every day outcome, night resolution, Hunter response, correction, and game finish is drafted locally, previewed as explicit consequences, and committed only when the host confirms it. Winner detection is advisory and must never automatically end a game.
 
 ## Role Details
 

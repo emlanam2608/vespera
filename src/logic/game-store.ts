@@ -1,572 +1,84 @@
-import { createStream, Stream } from './antigravity/stream';
-import { Player, RoleType, GameStatus, NightAction, GameLog, LogEventType, TieBreakRule } from '../types';
+'use client';
+
+import { createStream, Stream } from '@/logic/antigravity/stream';
+import { defaultStatus, DayOutcomeDraft, GameEvent, GameStatus, NightAction, NightDraft, PersistedSessionV2, Player, PlayerCorrection, ResolutionEffect, ResolutionPreview, SessionSnapshot, SetupDraft, UndoCheckpoint, Winner } from '@/types';
+import { previewDayOutcome, previewHunterResponse, previewNightResolution, suggestWinner } from '@/logic/rules';
+
+const STORAGE_KEY = 'vespera-session-v2';
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const id = () => Math.random().toString(36).slice(2, 10);
 
 export class GameStore {
   public playerList: Stream<Player[]>;
   public gameStatus: Stream<GameStatus>;
   public nightActions: Stream<NightAction[]>;
-  public gameLogs: Stream<GameLog[]>;
-  public revealQueue: Stream<Player[]>;
+  public gameEvents: Stream<GameEvent[]>;
+  public undoCheckpoint: Stream<UndoCheckpoint | null>;
+  public ready: Stream<boolean>;
 
   constructor() {
-    let initialPlayers = this.getInitialPlayers();
-    let initialStatus: GameStatus = {
-      phase: 'LOBBY',
-      dayCount: 0,
-      winner: null,
-      witchState: { hasHeal: true, hasPoison: true },
-      lastProtectedId: null,
-      pendingHunterId: null,
-      tieBreakRule: 'NO_EXECUTION',
-      villageCursed: false,
-      elderShieldCracked: false,
-      revealPolicy: { revealOnExecution: true, revealOnNightDeath: true },
-    };
-    let initialActions: NightAction[] = [];
-    let initialLogs: GameLog[] = [];
+    const restored = this.restore();
+    this.playerList = createStream(restored.players);
+    this.gameStatus = createStream(restored.status);
+    this.nightActions = createStream(restored.nightActions);
+    this.gameEvents = createStream(restored.events);
+    this.undoCheckpoint = createStream(restored.undoCheckpoint);
+    this.ready = createStream(true);
+  }
 
-    if (typeof window !== 'undefined') {
-      const savedPlayers = localStorage.getItem('vespera-players');
-      const savedStatus = localStorage.getItem('vespera-status');
-      const savedActions = localStorage.getItem('vespera-actions');
-      const savedLogs = localStorage.getItem('vespera-logs');
-
-      if (savedPlayers) { try { initialPlayers = JSON.parse(savedPlayers); } catch (e) {} }
-      if (savedStatus) { try { initialStatus = { ...initialStatus, ...JSON.parse(savedStatus) }; } catch (e) {} }
-      if (savedActions) { try { initialActions = JSON.parse(savedActions); } catch (e) {} }
-      if (savedLogs) { try { initialLogs = JSON.parse(savedLogs); } catch (e) {} }
+  private initial(): PersistedSessionV2 { return { version: 2, savedAt: Date.now(), players: [], status: defaultStatus(), nightActions: [], events: [], undoCheckpoint: null }; }
+  private restore(): PersistedSessionV2 {
+    if (typeof window === 'undefined') return this.initial();
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) { const parsed = JSON.parse(raw) as PersistedSessionV2; if (parsed.version === 2 && Array.isArray(parsed.players) && parsed.status) return parsed; }
+      const players = JSON.parse(localStorage.getItem('vespera-players') || '[]') as Array<Partial<Player>>;
+      if (Array.isArray(players) && players.length) return { ...this.initial(), players: players.map((player, index) => ({ id: player.id || `legacy-${index}`, name: player.name || `Player ${index + 1}`, role: (player.role || 'VILLAGER') as Player['role'], isAlive: player.isAlive !== false, status: (player.status as string) === 'Exposed' ? 'EXPOSED' : 'ALIVE', isMayor: Boolean(player.isMayor), loverPartnerId: player.loverPartnerId, faction: player.faction })), status: { ...defaultStatus(), stage: 'SETUP' } };
+    } catch { /* Invalid saved state safely starts fresh. */ }
+    return this.initial();
+  }
+  private snapshot(): SessionSnapshot { return { players: clone(this.playerList.value), status: clone(this.gameStatus.value), nightActions: clone(this.nightActions.value), events: clone(this.gameEvents.value) }; }
+  private persist() { if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, savedAt: Date.now(), ...this.snapshot(), undoCheckpoint: this.undoCheckpoint.value })); }
+  private checkpoint(label: string) { this.undoCheckpoint.set({ label, snapshot: this.snapshot() }); }
+  private event(type: GameEvent['type'], summary: string, effects: ResolutionEffect[]) { this.gameEvents.set([...this.gameEvents.value, { id: id(), createdAt: Date.now(), dayNumber: this.gameStatus.value.dayNumber, phase: this.gameStatus.value.phase, type, summary, playerIds: effects.flatMap(effect => effect.playerId ? [effect.playerId] : []), effects }]); }
+  private apply(effects: ResolutionEffect[]) {
+    let players = clone(this.playerList.value); const status = clone(this.gameStatus.value);
+    for (const effect of effects) {
+      if (effect.type === 'ELIMINATE' && effect.playerId) players = players.map(player => player.id === effect.playerId ? { ...player, isAlive: false } : player);
+      if (effect.type === 'EXPOSE_IDIOT' && effect.playerId) players = players.map(player => player.id === effect.playerId ? { ...player, status: 'EXPOSED' } : player);
+      if (effect.type === 'ASSIGN_MAYOR' && effect.playerId) players = players.map(player => ({ ...player, isMayor: player.id === effect.playerId }));
+      if (effect.type === 'LINK_LOVERS' && effect.playerId && effect.relatedPlayerId) { players = players.map(player => player.id === effect.playerId ? { ...player, loverPartnerId: effect.relatedPlayerId } : player.id === effect.relatedPlayerId ? { ...player, loverPartnerId: effect.playerId } : player); const a = players.find(player => player.id === effect.playerId); const b = players.find(player => player.id === effect.relatedPlayerId); if ((a?.role === 'WEREWOLF') !== (b?.role === 'WEREWOLF')) players = players.map(player => player.id === effect.playerId || player.id === effect.relatedPlayerId ? { ...player, faction: 'LOVERS' } : player); }
+      if (effect.type === 'CRACK_ELDER_SHIELD') status.elderShield = 'CRACKED';
+      if (effect.type === 'ACTIVATE_CURSE') status.villageCursed = true;
+      if (effect.type === 'CONSUME_POTION') status.witchResources = { ...status.witchResources, healAvailable: effect.resource === 'HEAL' ? false : status.witchResources.healAvailable, poisonAvailable: effect.resource === 'POISON' ? false : status.witchResources.poisonAvailable };
+      if (effect.type === 'SET_LAST_PROTECTED') status.lastProtectedPlayerId = effect.playerId || null;
+      if (effect.type === 'TRIGGER_HUNTER') { status.phase = 'HUNTER_RESPONSE'; status.pendingHunterId = effect.playerId || null; }
+      if (effect.type === 'ADVANCE_DAY') { status.dayNumber += 1; if (status.phase !== 'HUNTER_RESPONSE') status.phase = 'DAY'; }
     }
-
-    this.playerList = createStream<Player[]>(initialPlayers);
-    this.gameStatus = createStream<GameStatus>(initialStatus);
-    this.nightActions = createStream<NightAction[]>(initialActions);
-    this.gameLogs = createStream<GameLog[]>(initialLogs);
-    this.revealQueue = createStream<Player[]>([]);
-
-    if (typeof window !== 'undefined') {
-      this.playerList.subscribe(players => localStorage.setItem('vespera-players', JSON.stringify(players)));
-      this.gameStatus.subscribe(status => localStorage.setItem('vespera-status', JSON.stringify(status)));
-      this.nightActions.subscribe(actions => localStorage.setItem('vespera-actions', JSON.stringify(actions)));
-      this.gameLogs.subscribe(logs => localStorage.setItem('vespera-logs', JSON.stringify(logs)));
-      // revealQueue doesn't need persistence since it's an ephemeral pop-up
-    }
+    status.suggestedWinner = suggestWinner(players);
+    this.playerList.set(players); this.gameStatus.set(status);
   }
-
-  public clearRevealQueue() {
-    this.revealQueue.set([]);
-  }
-
-  private getInitialPlayers(): Player[] {
-    return [];
-  }
-
-  // ── Logging ──────────────────────────────────────────────────────────────
-
-  private addLog(type: LogEventType, message: string, involvedPlayerIds: string[] = []) {
-    const status = this.gameStatus.value;
-    this.gameLogs.update(logs => [
-      ...logs,
-      {
-        id: Math.random().toString(36).substring(2, 9),
-        timestamp: Date.now(),
-        dayCount: status.dayCount,
-        phase: status.phase,
-        type,
-        message,
-        involvedPlayerIds,
-      }
-    ]);
-  }
-
-  // ── Player Management ─────────────────────────────────────────────────────
-
-  public addPlayer(name: string) {
-    this.playerList.update(players => [
-      ...players,
-      {
-        id: `player-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        name,
-        role: 'VILLAGER',
-        isAlive: true,
-        status: 'Alive',
-      }
-    ]);
-  }
-
-  public removePlayer(playerId: string) {
-    this.playerList.update(players => players.filter(p => p.id !== playerId));
-  }
-
-  public clearPlayers() {
-    this.playerList.set([]);
-  }
-
-  public assignRole(playerId: string, role: RoleType) {
-    this.playerList.update(players =>
-      players.map(p => p.id === playerId ? { ...p, role } : p)
-    );
-  }
-
-  public randomizeRoles(roleDefinitions: RoleType[]) {
-    const shuffled = [...roleDefinitions].sort(() => Math.random() - 0.5);
-    this.playerList.update(players =>
-      players.map((p, i) => ({
-        ...p,
-        role: i < shuffled.length ? shuffled[i] : 'VILLAGER'
-      }))
-    );
-  }
-
-  private checkWinConditions() {
-    const players = this.playerList.value;
-    const alivePlayers = players.filter(p => p.isAlive);
-    const wolves = alivePlayers.filter(p => p.role === 'WEREWOLF');
-    const humans = alivePlayers.filter(p => p.role !== 'WEREWOLF');
-
-    const getPower = (p: Player) => {
-      if (p.status === 'Exposed') return 0;
-      return p.isMayor ? 2 : 1;
-    };
-
-    const wolfPower = wolves.reduce((sum, p) => sum + getPower(p), 0);
-    const humanPower = humans.reduce((sum, p) => sum + getPower(p), 0);
-
-    if (alivePlayers.length > 0 && alivePlayers.length <= 3 && alivePlayers.every(p => p.faction === 'LOVERS')) {
-      this.gameStatus.update(status => ({ ...status, winner: 'LOVERS', phase: 'GAMEOVER' }));
-      this.addLog('INFO', '💘 VICTORY! True love conquers all. The Lovers Faction has survived!', []);
-      return;
-    }
-
-    if (wolfPower === 0 && wolves.length === 0 && players.some(p => p.role === 'WEREWOLF')) {
-      // Villagers win if all wolves are gone
-      this.gameStatus.update(status => ({ ...status, winner: 'VILLAGERS', phase: 'GAMEOVER' }));
-      this.addLog('INFO', '🎉 VICTORY! All werewolves have been eliminated. The Village is safe.', []);
-      return;
-    }
-
-    if (wolfPower >= humanPower && alivePlayers.length > 0) {
-      // Werewolves win if they have equal or more voting power than humans
-      this.gameStatus.update(status => ({ ...status, winner: 'WEREWOLVES', phase: 'GAMEOVER' }));
-      this.addLog('INFO', '🐺 VICTORY! The werewolves have controlled the voting power of the village.', []);
-      return;
-    }
-  }
-
-  public assignMayor(playerId: string) {
-    // Clear existing mayor
-    this.playerList.update(players =>
-      players.map(p => ({ ...p, isMayor: p.id === playerId }))
-    );
-    const player = this.playerList.value.find(p => p.id === playerId);
-    if (player) {
-      this.addLog('SPECIAL', `${player.name} has been elected as the new Mayor!`, [playerId]);
-    }
-    this.gameStatus.update(status => ({ ...status, phase: 'DAY' }));
-    this.checkWinConditions();
-  }
-
-  // Eliminate a player (Night phase / manual). killedBy defaults to 'Night'.
-  public eliminatePlayer(playerId: string, killedBy: 'Night' | 'Village' = 'Night') {
-    const player = this.playerList.value.find(p => p.id === playerId);
-    if (!player || !player.isAlive) return;
-
-    let toKill = [playerId];
-    if (player.loverPartnerId) toKill.push(player.loverPartnerId);
-
-    const revealN = this.gameStatus.value.revealPolicy?.revealOnNightDeath;
-    const isChainDeath = toKill.length > 1;
-
-    this.playerList.update(players =>
-      players.map(p => toKill.includes(p.id) ? { 
-        ...p, 
-        isAlive: false, 
-        status: 'Alive',
-        revealedRole: (isChainDeath || revealN) ? p.role : p.revealedRole
-      } : p)
-    );
-
-    toKill.forEach(id => {
-      const p = this.playerList.value.find(x => x.id === id);
-      if (p) {
-        if (id !== playerId && isChainDeath) {
-           this.addLog('NIGHT_DEATH', `${p.name} (${p.role}) has died of a broken heart following the death of their lover!`, [id]);
-        } else {
-           let msg = `${p.name} was eliminated.`;
-           if (isChainDeath || revealN) msg = `${p.name} (${p.role}) was eliminated.`;
-           this.addLog('NIGHT_DEATH', msg, [id]);
-        }
-      }
-    });
-
-    if (this.gameStatus.value.phase !== 'NIGHT') {
-       const newlyDead = this.playerList.value.filter(p => toKill.includes(p.id));
-       this.revealQueue.update(q => [...q, ...newlyDead]);
-    }
-
-    const hunterKilled = toKill.find(id => this.playerList.value.find(p => p.id === id)?.role === 'HUNTER');
-
-    if (hunterKilled && !this.gameStatus.value.villageCursed) {
-      const hunter = this.playerList.value.find(p => p.id === hunterKilled);
-      this.gameStatus.update(status => ({ ...status, phase: 'REVENGE', pendingHunterId: hunterKilled }));
-      this.addLog('ABILITY', `${hunter?.name} (Hunter) triggers Last Stand!`, [hunterKilled]);
-    } else if (hunterKilled) {
-      const hunter = this.playerList.value.find(p => p.id === hunterKilled);
-      this.addLog('INFO', `${hunter?.name} (Hunter) is cursed — Last Stand suppressed.`, [hunterKilled]);
-      this.checkWinConditions();
-    } else {
-      this.checkWinConditions();
-    }
-  }
-
-  // Revive a player (manual override)
-  public revivePlayer(playerId: string) {
-    this.playerList.update(players =>
-      players.map(p => p.id === playerId ? { ...p, isAlive: true, status: 'Alive', revealedRole: undefined } : p)
-    );
-    const player = this.playerList.value.find(p => p.id === playerId);
-    if (player) this.addLog('INFO', `${player.name} was revived by the moderator.`, [playerId]);
-  }
-
-  // ── Voting & Execution ────────────────────────────────────────────────────
-
-  /**
-   * Executes a player following a village vote. Handles role-specific effects:
-   * - IDIOT: stays alive, gets "Exposed" status
-   * - HUNTER: triggers Hunter Revenge phase
-   * - ELDER: triggers Village Curse (if killed by village)
-   */
-  public voteExecution(playerId: string) {
-    const player = this.playerList.value.find(p => p.id === playerId);
-    if (!player) return;
-
-    if (player.role === 'IDIOT' && player.status !== 'Exposed') {
-      // Idiot survives their first execution — gets Exposed, vote weight → 0
-      this.playerList.update(players =>
-        players.map(p => p.id === playerId ? { ...p, status: 'Exposed' } : p)
-      );
-      this.addLog('SPECIAL', `${player.name} (Idiot) survived execution! They are now Exposed — their votes count for nothing.`, [playerId]);
-      return;
-    }
-
-    if (player.role === 'ELDER') {
-      // Village kills the Elder → curse: all special powers lost
-      this.gameStatus.update(status => ({ ...status, villageCursed: true }));
-      this.addLog('SPECIAL', `🔥 VILLAGE CURSE ACTIVATED! Seer, Bodyguard, Witch, and Hunter lose their powers for the rest of the game.`, [playerId]);
-    }
-
-    // Standard execution with Lover chain
-    let toKill = [playerId];
-    if (player.loverPartnerId) toKill.push(player.loverPartnerId);
-
-    const revealPolicy = this.gameStatus.value.revealPolicy;
-    const isChainDeath = toKill.length > 1;
-    
-    this.playerList.update(players =>
-      players.map(p => toKill.includes(p.id) ? { 
-        ...p, 
-        isAlive: false,
-        revealedRole: (isChainDeath || revealPolicy?.revealOnExecution) ? p.role : p.revealedRole
-      } : p)
-    );
-
-    const newlyDead = this.playerList.value.filter(p => toKill.includes(p.id));
-    this.revealQueue.update(q => [...q, ...newlyDead]);
-
-    toKill.forEach(id => {
-      const p = this.playerList.value.find(x => x.id === id);
-      if (p) {
-         if (id !== playerId && isChainDeath) {
-             this.addLog('EXECUTION', `${p.name} (${p.role}) has died of a broken heart following the death of their lover!`, [id]);
-         } else {
-             const roleStr = (isChainDeath || revealPolicy?.revealOnExecution) ? ` (${p.role})` : '';
-             this.addLog('EXECUTION', `${p.name}${roleStr} was executed by the village.`, [id]);
-         }
-      }
-    });
-
-    const hunterKilled = toKill.find(id => this.playerList.value.find(p => p.id === id)?.role === 'HUNTER');
-
-    if (hunterKilled && !this.gameStatus.value.villageCursed) {
-      const hunter = this.playerList.value.find(p => p.id === hunterKilled);
-      this.gameStatus.update(status => ({ ...status, phase: 'REVENGE', pendingHunterId: hunterKilled }));
-      this.addLog('ABILITY', `${hunter?.name} (Hunter) triggers Last Stand!`, [hunterKilled]);
-    } else if (hunterKilled) {
-      const hunter = this.playerList.value.find(p => p.id === hunterKilled);
-      this.addLog('INFO', `${hunter?.name} (Hunter) is cursed — Last Stand suppressed.`, [hunterKilled]);
-      this.checkWinConditions();
-    } else {
-      this.checkWinConditions();
-    }
-  }
-
-  public setTieBreakRule(rule: TieBreakRule) {
-    this.gameStatus.update(status => ({ ...status, tieBreakRule: rule }));
-  }
-
-  public toggleMayor(playerId: string) {
-    this.playerList.update(players =>
-      players.map(p => p.id === playerId ? { ...p, isMayor: !p.isMayor } : p)
-    );
-    const player = this.playerList.value.find(p => p.id === playerId);
-    if (player) {
-      this.addLog('SPECIAL', `${player.name} is ${player.isMayor ? 'now' : 'no longer'} the Mayor.`, [playerId]);
-    }
-  }
-
-  // ── Night Resolution ──────────────────────────────────────────────────────
-
-  public resolveNight() {
-    const actions = this.nightActions.value;
-    const players = this.playerList.value;
-    let playersToKill: string[] = [];
-
-    // ── Apply Cupid Links First ─────────────────────────────────────────────
-    const cupidLinks = actions.filter(a => a.type === 'CUPID_LINK').map(a => a.targetId);
-    let cupidModifications = new Map<string, Partial<Player>>();
-
-    if (cupidLinks.length === 2) {
-      const idA = cupidLinks[0];
-      const idB = cupidLinks[1];
-      const pA = players.find(p => p.id === idA);
-      const pB = players.find(p => p.id === idB);
-      if (pA && pB) {
-         cupidModifications.set(idA, { loverPartnerId: idB });
-         cupidModifications.set(idB, { loverPartnerId: idA });
-         const mixed = (pA.role === 'WEREWOLF' && pB.role !== 'WEREWOLF') || (pB.role === 'WEREWOLF' && pA.role !== 'WEREWOLF');
-         if (mixed) {
-            cupidModifications.get(idA)!.faction = 'LOVERS';
-            cupidModifications.get(idB)!.faction = 'LOVERS';
-            const cupidId = players.find(p => p.role === 'CUPID')?.id;
-            if (cupidId) cupidModifications.set(cupidId, { faction: 'LOVERS' });
-         }
-      }
-    }
-
-    const workingPlayers = players.map(p => {
-       if (cupidModifications.has(p.id)) return { ...p, ...cupidModifications.get(p.id) };
-       return p;
-    });
-
-    const bodyguardProtect = actions.find(a => a.type === 'BODYGUARD_PROTECT')?.targetId;
-    const werewolfKills   = actions.filter(a => a.type === 'WEREWOLF_KILL').map(a => a.targetId);
-    const witchSave        = actions.find(a => a.type === 'WITCH_SAVE')?.targetId;
-    const witchKills       = actions.filter(a => a.type === 'WITCH_KILL').map(a => a.targetId);
-
-    const elder   = workingPlayers.find(p => p.role === 'ELDER' && p.isAlive);
-    const elderId = elder?.id;
-
-    // ── Elder shield vs Werewolf attacks ────────────────────────────────────
-    // Bodyguard protection fully negates the wolf attack — no shield crack.
-    // If wolves target Elder WITHOUT bodyguard cover, the shield absorbs or breaks.
-    const elderWolfTargeted = !!elderId && werewolfKills.includes(elderId) && elderId !== bodyguardProtect;
-
-    if (elderWolfTargeted) {
-      const { elderShieldCracked } = this.gameStatus.value;
-      const witchSavesElder = elderId === witchSave;
-
-      if (!elderShieldCracked) {
-        // First hit — crack the shield. Elder survives regardless of witch save.
-        this.gameStatus.update(s => ({ ...s, elderShieldCracked: true }));
-        if (witchSavesElder) {
-          this.addLog('ABILITY', `⚡ The wolves cracked the Elder's shield! The Witch also saved them — shield remains cracked.`, [elderId]);
-        } else {
-          this.addLog('ABILITY', `⚡ The wolves strike the Elder, but their ancient shield absorbs the blow! The shield is now cracked.`, [elderId]);
-        }
-        // Do NOT add Elder to playersToKill — they survive this hit.
-      } else {
-        // Second hit — shield is already cracked, Elder dies (no curse).
-        if (!witchSavesElder) {
-          playersToKill.push(elderId);
-        }
-        // If witch saves on 2nd hit, Elder still lives (witch overrides).
-      }
-    }
-
-    // ── Regular wolf kills (non-Elder targets) ────────────────────────────
-    werewolfKills.forEach(targetId => {
-      if (targetId === elderId) return; // Already handled above
-      if (targetId !== bodyguardProtect && targetId !== witchSave) {
-        playersToKill.push(targetId);
-      }
-    });
-
-    // ── Witch poison — instant kill, triggers curse if Elder ─────────────
-    let witchPoisonedElder = false;
-    witchKills.forEach(targetId => {
-      if (!playersToKill.includes(targetId)) {
-        playersToKill.push(targetId);
-        if (targetId === elderId) witchPoisonedElder = true;
-      }
-    });
-
-    // ── Lover Chain Death ──────────────────────────────────────────────────
-    let expandedKills = new Set(playersToKill);
-    let draggedByLover = new Map<string, string>(); // Target -> Dragged By
-    
-    playersToKill.forEach(id => {
-      const p = workingPlayers.find(x => x.id === id);
-      if (p?.loverPartnerId && !expandedKills.has(p.loverPartnerId)) {
-        expandedKills.add(p.loverPartnerId);
-        draggedByLover.set(p.loverPartnerId, id);
-      }
-    });
-    const finalKills = Array.from(expandedKills);
-
-    // ── Apply deaths & modifications ──────────────────────────────────────
-    const revealPolicy = this.gameStatus.value.revealPolicy;
-    this.playerList.update(ps =>
-      ps.map(p => {
-        let updated = { ...p };
-        if (cupidModifications.has(p.id)) {
-           updated = { ...updated, ...cupidModifications.get(p.id) };
-        }
-        if (finalKills.includes(p.id)) {
-          const isChainDeath = updated.loverPartnerId && finalKills.includes(updated.loverPartnerId);
-          updated.isAlive = false;
-          updated.revealedRole = (isChainDeath || revealPolicy?.revealOnNightDeath) ? updated.role : updated.revealedRole;
-        }
-        return updated;
-      })
-    );
-
-    // ── Log deaths ────────────────────────────────────────────────────────
-    const allPlayers = this.playerList.value;
-    finalKills.forEach(id => {
-      const p = allPlayers.find(pl => pl.id === id);
-      if (p) {
-         const isChainDeath = p.loverPartnerId && finalKills.includes(p.loverPartnerId);
-         if (draggedByLover.has(id)) {
-            const dragSourceId = draggedByLover.get(id);
-            const dragSource = allPlayers.find(x => x.id === dragSourceId);
-            this.addLog('NIGHT_DEATH', `${p.name} (${p.role}) has died of a broken heart following the death of their lover ${dragSource?.name}!`, [id]);
-         } else {
-            let msg = `${p.name} was killed during the night.`;
-            if (isChainDeath || revealPolicy?.revealOnNightDeath) {
-              msg = `${p.name} (${p.role}) was killed during the night.`;
-            }
-            this.addLog('NIGHT_DEATH', msg, [id]);
-         }
-      }
-    });
-
-    if (bodyguardProtect) {
-      const protected_ = allPlayers.find(p => p.id === bodyguardProtect);
-      if (protected_ && werewolfKills.includes(bodyguardProtect)) {
-        this.addLog('ABILITY', `${protected_.name} was protected by the Bodyguard.`, [bodyguardProtect]);
-      }
-    }
-
-    // ── Village Curse: witch poison killed the Elder ──────────────────────
-    if (witchPoisonedElder) {
-      this.gameStatus.update(s => ({ ...s, villageCursed: true }));
-      this.addLog('SPECIAL', `🔥 VILLAGE CURSE ACTIVATED! The Elder was poisoned by the Witch. Seer, Bodyguard, Witch, and Hunter lose their powers for the rest of the game.`, [elderId!]);
-    }
-
-    // Read updated curse state — witch poison may have just set it
-    const cursed = this.gameStatus.value.villageCursed;
-    const hunterKilled = finalKills.find(id => allPlayers.find(p => p.id === id)?.role === 'HUNTER');
-
-    this.gameStatus.update(status => ({
-      ...status,
-      phase: (hunterKilled && !cursed) ? 'REVENGE' : 'DAY',
-      dayCount: status.dayCount + 1,
-      lastProtectedId: bodyguardProtect || null,
-      pendingHunterId: (hunterKilled && !cursed) ? hunterKilled : null,
-    }));
-
-    if (hunterKilled && !cursed) {
-      const hunter = allPlayers.find(p => p.id === hunterKilled);
-      if (hunter) this.addLog('ABILITY', `${hunter.name} (Hunter) triggers Last Stand!`, [hunterKilled]);
-    } else {
-      if (hunterKilled) {
-        const hunter = allPlayers.find(p => p.id === hunterKilled);
-        if (hunter) this.addLog('INFO', `${hunter.name} (Hunter) is cursed — Last Stand suppressed.`, [hunterKilled]);
-      }
-      this.checkWinConditions();
-    }
-
-    this.nightActions.set([]);
-  }
-
-  // ── Hunter Revenge ────────────────────────────────────────────────────────
-
-  public executeHunterRevenge(targetId: string | null) {
-    const previousPhase = this.gameLogs.value.find(l => l.type === 'ABILITY' && l.message.includes('Last Stand'))?.phase ?? 'DAY';
-    this.gameStatus.update(status => ({ ...status, phase: 'DAY', pendingHunterId: null }));
-
-    if (targetId) {
-      const player = this.playerList.value.find(p => p.id === targetId);
-      
-      let toKill = [targetId];
-      if (player?.loverPartnerId) toKill.push(player.loverPartnerId);
-
-      // Hunter shot ALWAYS reveals role according to spec: "Reveal player role after being shooted by hunter"
-      this.playerList.update(players =>
-        players.map(p => toKill.includes(p.id) ? { 
-          ...p, 
-          isAlive: false,
-          revealedRole: p.role
-        } : p)
-      );
-
-      const newlyDead = this.playerList.value.filter(p => toKill.includes(p.id));
-      this.revealQueue.update(q => [...q, ...newlyDead]);
-
-      toKill.forEach(id => {
-         const p = this.playerList.value.find(x => x.id === id);
-         if (p) this.addLog('ABILITY', `Hunter shot ${p.name} (${p.role}).`, [id]);
-      });
-    } else {
-      this.addLog('INFO', 'Hunter chose to spare the village.', []);
-    }
-
-    this.checkWinConditions();
-  }
-
-  // ── Night Actions ─────────────────────────────────────────────────────────
-
-  public addNightAction(action: Omit<NightAction, 'id' | 'resolved'>) {
-    this.nightActions.update(actions => [
-      ...actions,
-      { ...action, id: Math.random().toString(36).substring(7), resolved: false }
-    ]);
-  }
-
-  public useWitchPotion(type: 'HEAL' | 'POISON') {
-    this.gameStatus.update(status => ({
-      ...status,
-      witchState: {
-        ...status.witchState,
-        hasHeal: type === 'HEAL' ? false : status.witchState.hasHeal,
-        hasPoison: type === 'POISON' ? false : status.witchState.hasPoison,
-      }
-    }));
-  }
-
-  // ── Game Control ──────────────────────────────────────────────────────────
-
-  public setPhase(phase: GameStatus['phase']) {
-    this.gameStatus.update(status => ({ ...status, phase }));
-  }
-
-  public resetGame() {
-    this.gameStatus.set({
-      phase: 'LOBBY',
-      dayCount: 0,
-      winner: null,
-      witchState: { hasHeal: true, hasPoison: true },
-      lastProtectedId: null,
-      pendingHunterId: null,
-      tieBreakRule: 'NO_EXECUTION',
-      villageCursed: false,
-      elderShieldCracked: false,
-      revealPolicy: { revealOnExecution: true, revealOnNightDeath: true },
-    });
-    this.playerList.update(players => players.map(p => ({ ...p, isAlive: true, status: 'Alive' as const, isMayor: false, revealedRole: undefined, loverPartnerId: undefined, faction: undefined })));
-    this.nightActions.set([]);
-    this.gameLogs.set([]);
-  }
+  private commit(label: string, type: GameEvent['type'], summary: string, effects: ResolutionEffect[]) { this.checkpoint(label); this.apply(effects); this.event(type, summary, effects); this.persist(); }
+  private previewMatches(preview: ResolutionPreview, current: ResolutionPreview) { return preview.fingerprint === current.fingerprint; }
+
+  public addSetupPlayer(name: string) { const normalized = name.trim(); if (!normalized || this.playerList.value.some(player => player.name.toLocaleLowerCase() === normalized.toLocaleLowerCase())) return false; this.playerList.set([...this.playerList.value, { id: id(), name: normalized, role: 'VILLAGER', isAlive: true, status: 'ALIVE', isMayor: false }]); this.persist(); return true; }
+  public removeSetupPlayer(playerId: string) { this.playerList.set(this.playerList.value.filter(player => player.id !== playerId)); this.persist(); }
+  public setSetupRole(playerId: string, role: Player['role']) { const existing = this.playerList.value.filter(player => player.id !== playerId && player.role === role).length; if (existing && role !== 'VILLAGER' && role !== 'WEREWOLF') return false; this.playerList.set(this.playerList.value.map(player => player.id === playerId ? { ...player, role } : player)); this.persist(); return true; }
+  public randomizeSetupRoles(roles: Player['role'][]) { const shuffled = [...roles]; for (let index = shuffled.length - 1; index > 0; index -= 1) { const target = Math.floor(Math.random() * (index + 1)); [shuffled[index], shuffled[target]] = [shuffled[target], shuffled[index]]; } this.playerList.set(this.playerList.value.map((player, index) => ({ ...player, role: shuffled[index] || 'VILLAGER' }))); this.persist(); }
+  public confirmSetup(draft: SetupDraft) { if (draft.players.length < 3) return false; this.checkpoint('Confirm setup'); this.playerList.set(clone(draft.players)); this.gameStatus.set({ ...defaultStatus(), stage: 'RUNNING' }); this.nightActions.set([]); this.event('SETUP', 'Session setup confirmed.', []); this.persist(); return true; }
+  public startNight() { this.gameStatus.set({ ...this.gameStatus.value, phase: 'NIGHT', suggestedWinner: null }); this.persist(); }
+  public cancelNightDraft() { this.gameStatus.set({ ...this.gameStatus.value, phase: 'DAY' }); this.persist(); }
+  public previewDayOutcome(draft: DayOutcomeDraft) { return previewDayOutcome(this.playerList.value, this.gameStatus.value, draft); }
+  public confirmDayOutcome(draft: DayOutcomeDraft, resolution: ResolutionPreview) { const current = this.previewDayOutcome(draft); if (!this.previewMatches(resolution, current) || current.warnings.length) return false; this.commit('Confirm day outcome', 'DAY', draft.type === 'NO_ELIMINATION' ? 'No daytime outcome recorded.' : 'Day outcome confirmed.', current.effects); return true; }
+  public previewNightResolution(draft: NightDraft) { return previewNightResolution(this.playerList.value, this.gameStatus.value, draft); }
+  public confirmNightResolution(draft: NightDraft, resolution: ResolutionPreview) { const current = this.previewNightResolution(draft); if (!this.previewMatches(resolution, current) || current.warnings.length) return false; const actions: NightAction[] = Object.entries(draft).filter(([, value]) => Array.isArray(value) ? value.length : Boolean(value)).map(([type, value]) => ({ type: type as NightAction['type'], targetIds: Array.isArray(value) ? value : [value as string] })); this.commit('Resolve night', 'NIGHT', 'Night resolution confirmed.', current.effects); this.nightActions.set(actions); this.persist(); return true; }
+  public previewHunterResponse(targetId: string | null) { return previewHunterResponse(this.playerList.value, targetId); }
+  public confirmHunterResponse(targetId: string | null, resolution: ResolutionPreview) { const current = this.previewHunterResponse(targetId); if (!this.previewMatches(resolution, current)) return false; this.commit('Resolve Hunter', 'HUNTER', targetId ? 'Hunter response confirmed.' : 'Hunter passed.', current.effects); this.gameStatus.set({ ...this.gameStatus.value, phase: 'DAY', pendingHunterId: null, suggestedWinner: suggestWinner(this.playerList.value) }); this.persist(); return true; }
+  public confirmPlayerCorrection(correction: PlayerCorrection) { const target = this.playerList.value.find(player => player.id === correction.playerId); if (!target) return false; const effects: ResolutionEffect[] = correction.type === 'ELIMINATE' ? [{ type: 'ELIMINATE', playerId: target.id, explanation: `${target.name} was removed by moderator correction.` }] : correction.type === 'TOGGLE_MAYOR' ? [{ type: 'ASSIGN_MAYOR', playerId: target.isMayor ? undefined : target.id, explanation: 'Mayor corrected.' }] : []; this.commit('Moderator correction', 'CORRECTION', 'Moderator correction confirmed.', effects); if (correction.type === 'REVIVE') this.playerList.set(this.playerList.value.map(player => player.id === target.id ? { ...player, isAlive: true, status: 'ALIVE' } : player)); this.persist(); return true; }
+  public finishGame(winner: Winner) { this.commit('Finish game', 'FINISH', `${winner} confirmed as winner.`, []); this.gameStatus.set({ ...this.gameStatus.value, stage: 'FINISHED', confirmedWinner: winner, suggestedWinner: null }); this.persist(); }
+  public dismissWinnerSuggestion() { this.gameStatus.set({ ...this.gameStatus.value, suggestedWinner: null }); this.persist(); }
+  public undoLastCommit() { const checkpoint = this.undoCheckpoint.value; if (!checkpoint) return false; this.playerList.set(clone(checkpoint.snapshot.players)); this.gameStatus.set(clone(checkpoint.snapshot.status)); this.nightActions.set(clone(checkpoint.snapshot.nightActions)); this.gameEvents.set([...clone(checkpoint.snapshot.events), { id: id(), createdAt: Date.now(), dayNumber: checkpoint.snapshot.status.dayNumber, phase: checkpoint.snapshot.status.phase, type: 'SYSTEM', summary: `Undid: ${checkpoint.label}`, playerIds: [], effects: [] }]); this.undoCheckpoint.set(null); this.persist(); return true; }
+  public resetSession(keepPlayers = true) { const players: Player[] = keepPlayers ? this.playerList.value.map(player => ({ ...player, role: 'VILLAGER' as const, isAlive: true, status: 'ALIVE' as const, isMayor: false, loverPartnerId: undefined, faction: undefined })) : []; this.playerList.set(players); this.gameStatus.set(defaultStatus()); this.nightActions.set([]); this.gameEvents.set([]); this.undoCheckpoint.set(null); this.persist(); }
 }
 
-// Singleton
 export const gameStore = new GameStore();
